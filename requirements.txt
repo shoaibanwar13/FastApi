@@ -1,5 +1,4 @@
 fastapi==0.100.0
 uvicorn==0.23.0
 pydantic==2.4.0
-transformers==4.33.0
-torch==2.0.1  # For PyTorch, which is needed by the transformers model
+requests==2.31.0
