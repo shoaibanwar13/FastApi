@@ -1,4 +1,8 @@
-fastapi==0.100.0
-uvicorn==0.23.0
-pydantic==2.4.0
+
+fastapi==0.103.1
+pydantic==2.3.0
+uvicorn==0.23.2
+nltk==3.8.1
+textblob==0.17.1
 requests==2.31.0
+
