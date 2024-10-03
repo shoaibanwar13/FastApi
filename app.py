@@ -11,7 +11,8 @@ nltk.download('wordnet')  # Download WordNet for synonyms
 app = FastAPI()
 
 class UnpredictableTextGenerator:
-    def __init__(self, text):
+    def __init__(self, text, order=3):
+        self.order = order
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -20,25 +21,24 @@ class UnpredictableTextGenerator:
         return re.findall(r'\b\w+\b|[.,!?]', text)
 
     def add_to_chain(self):
-        for i in range(len(self.words) - 2):
-            current_word = self.words[i]
-            next_word = self.words[i + 1]
-            following_word = self.words[i + 2]
-            if (current_word, next_word) in self.chain:
-                if following_word not in self.chain[(current_word, next_word)]:
-                    self.chain[(current_word, next_word)].append(following_word)
+        for i in range(len(self.words) - self.order):
+            current_tuple = tuple(self.words[i:i + self.order])
+            next_word = self.words[i + self.order]
+            if current_tuple in self.chain:
+                if next_word not in self.chain[current_tuple]:
+                    self.chain[current_tuple].append(next_word)
             else:
-                self.chain[(current_word, next_word)] = [following_word]
+                self.chain[current_tuple] = [next_word]
 
     def generate_text(self, input_length):
         required_length = max(1, int(input_length * 1.2))  # 120% of input length
         
-        start_pair = random.choice(list(self.chain.keys()))
-        sentence = [start_pair[0], start_pair[1]]
+        start_tuple = random.choice(list(self.chain.keys()))
+        sentence = list(start_tuple)
 
         while len(sentence) < required_length:
-            current_pair = (sentence[-2], sentence[-1])
-            next_words = self.chain.get(current_pair, None)
+            current_tuple = tuple(sentence[-self.order:])
+            next_words = self.chain.get(current_tuple, None)
             if not next_words:
                 break
             next_word = random.choice(next_words)
@@ -84,7 +84,8 @@ class UnpredictableTextGenerator:
 
             synonyms = wordnet.synsets(word)
             if synonyms:
-                synonym = synonyms[0].lemmas()[0].name()
+                # Select a random synonym instead of the first one
+                synonym = random.choice(synonyms).lemmas()[0].name()
                 if synonym != word:
                     new_words.append(synonym.replace('_', ' '))
                 else:
@@ -125,7 +126,7 @@ class TextRequest(BaseModel):
 async def generate_text(request: TextRequest):
     input_length = len(request.text.split())
     
-    generator = UnpredictableTextGenerator(request.text)
+    generator = UnpredictableTextGenerator(request.text, order=3)  # Use trigram model
     
     generated_text = generator.generate_text(input_length)
     formatted_output = generator.format_output(request.text, generated_text)
@@ -134,4 +135,4 @@ async def generate_text(request: TextRequest):
 
 # Run the application
 # Use the command below to run the server:
-# uvicorn your_filename:app --reload 
+# uvicorn your_filename:app --reload
