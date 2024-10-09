@@ -1,138 +1,80 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, constr, validator
-import random
-import re
+from pydantic import BaseModel
 import nltk
 from nltk.corpus import wordnet
-from textblob import TextBlob
+from fastapi.middleware.cors import CORSMiddleware
 
-nltk.download('wordnet')  # Download WordNet for synonyms
+# Download necessary NLTK data files
+nltk.download('wordnet', quiet=True)
+nltk.download('punkt', force=True)
+nltk.download('averaged_perceptron_tagger', force=True)
 
 app = FastAPI()
 
-class UnpredictableTextGenerator:
-    def __init__(self, text, order=3):
-        self.order = order
-        self.chain = {}
-        self.words = self.tokenize(text)
-        self.add_to_chain()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
 
-    def tokenize(self, text):
-        return re.findall(r'\b\w+\b|[.,!?]', text)
+# Define a request model for the input
+class ParaphraseRequest(BaseModel):
+    text: str
 
-    def add_to_chain(self):
-        for i in range(len(self.words) - self.order):
-            current_tuple = tuple(self.words[i:i + self.order])
-            next_word = self.words[i + self.order]
-            if current_tuple in self.chain:
-                if next_word not in self.chain[current_tuple]:
-                    self.chain[current_tuple].append(next_word)
-            else:
-                self.chain[current_tuple] = [next_word]
+def get_first_synonym(word, pos=None):
+    """Retrieve the first synonym from WordNet if available and appropriate."""
+    synonyms = wordnet.synsets(word, pos=pos)
+    if synonyms:
+        # Return the first lemma as the synonym, unless it's too technical or awkward
+        lemma = synonyms[0].lemmas()[0].name()
+        # Ensure the lemma doesn't contain numbers, acronyms, or technical terms
+        if not any(char.isdigit() for char in lemma) and len(lemma) < 20:
+            return lemma.replace('_', ' ')
+    return word  # Return the original word if no suitable synonym is found
 
-    def generate_text(self, input_length):
-        required_length = max(1, int(input_length * 1.2))  # 120% of input length
+def paraphrase(text: str) -> str:
+    # Tokenize the input text into words
+    words = nltk.word_tokenize(text)
+    paraphrased_text = []
+
+    for word in words:
+        pos_tag = nltk.pos_tag([word])[0][1]
         
-        start_tuple = random.choice(list(self.chain.keys()))
-        sentence = list(start_tuple)
+        # Only replace nouns, verbs, adjectives, and adverbs
+        if pos_tag.startswith('NN'):
+            paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
+        elif pos_tag.startswith('VB'):
+            paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
+        elif pos_tag.startswith('JJ'):
+            paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
+        elif pos_tag.startswith('RB'):
+            paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
+        else:
+            paraphrased_word = word  # Keep the word unchanged if it's not one of the main POS categories
 
-        while len(sentence) < required_length:
-            current_tuple = tuple(sentence[-self.order:])
-            next_words = self.chain.get(current_tuple, None)
-            if not next_words:
-                break
-            next_word = random.choice(next_words)
-            sentence.append(next_word)
+        paraphrased_text.append(paraphrased_word)
 
-        # Capitalize the first word
-        if sentence:
-            sentence[0] = sentence[0].capitalize()
+    # Join the paraphrased words into a single string
+    paraphrased_sentence = ' '.join(paraphrased_text)
 
-        # Join to form a sentence
-        output_sentence = ' '.join(sentence)
+    # Capitalize the first letter of each sentence
+    sentences = nltk.sent_tokenize(paraphrased_sentence)  # Split into sentences
+    capitalized_sentences = [s.capitalize() for s in sentences]
 
-        # Ensure the output is at least the required length
-        while len(output_sentence.split()) < required_length:
-            next_word = random.choice(self.words)  # Use a random word if needed
-            sentence.append(next_word)
-            output_sentence = ' '.join(sentence)
+    # Join the capitalized sentences back together
+    final_paraphrase = ' '.join(capitalized_sentences)
 
-        # Clean up punctuation
-        output_sentence = re.sub(r'\s+[.,!?]', lambda match: match.group(0).strip(), output_sentence)
-        output_sentence = re.sub(r'([.!?]){2,}', r'\1', output_sentence)
-        
-        # Ensure sentence ends with a period, exclamation, or question mark
-        if output_sentence and output_sentence[-1] not in ['.', '!', '?']:
-            output_sentence += '.'
-
-        # Replace some words with synonyms to enhance the text's variability
-        output_sentence = self.replace_with_synonyms(output_sentence)
-
-        # Correct grammar using TextBlob
-        output_sentence = self.correct_grammar(output_sentence)
-
-        return output_sentence
-
-    def replace_with_synonyms(self, sentence):
-        words = sentence.split()
-        new_words = []
-        for word in words:
-            # Skip common words from synonym replacement
-            if word.lower() in ['the', 'and', 'of', 'to', 'in', 'a', 'an']:
-                new_words.append(word)
-                continue
-
-            synonyms = wordnet.synsets(word)
-            if synonyms:
-                # Select a random synonym instead of the first one
-                synonym = random.choice(synonyms).lemmas()[0].name()
-                if synonym != word:
-                    new_words.append(synonym.replace('_', ' '))
-                else:
-                    new_words.append(word)
-            else:
-                new_words.append(word)
-        return ' '.join(new_words)
-
-    def correct_grammar(self, sentence):
-        # Use TextBlob for grammar correction
-        blob = TextBlob(sentence)
-        return str(blob.correct())
-
-    def format_output(self, original_text, generated_text):
-        output_lines = []
-        for line in original_text.strip().split('\n'):
-            if line.startswith('#'):
-                output_lines.append(line)
-            else:
-                output_lines.append(generated_text)
-        return '\n'.join(output_lines)
-
-# Define input data model
-class TextRequest(BaseModel):
-    language: str
-    text: constr(max_length=5000)
-    length: int = 100
-
-    @validator('text')
-    def check_minimum_length(cls, v):
-        if len(v.split()) < 10:
-            raise ValueError("Text must be at least 10 words long.")
-        if not v[0].isupper():
-            raise ValueError("Text must start with an uppercase letter.")
-        return v
+    return final_paraphrase
 
 @app.post("/generate/")
-async def generate_text(request: TextRequest):
-    input_length = len(request.text.split())
-    
-    generator = UnpredictableTextGenerator(request.text, order=3)  # Use trigram model
-    
-    generated_text = generator.generate_text(input_length)
-    formatted_output = generator.format_output(request.text, generated_text)
+async def paraphrase_text(request: ParaphraseRequest):
+    try:
+        paraphrased = paraphrase(request.text)
+        return {"original": request.text, "generated_text": paraphrased}
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))
 
-    return {"language": request.language, "generated_text": formatted_output}
-
-# Run the application
-# Use the command below to run the server:
-# uvicorn your_filename:app --reload
+# To run the server, use the command: uvicorn your_filename:app --reload
