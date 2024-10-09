@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import random
+import jieba  # For Chinese text segmentation
 import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,30 +21,28 @@ app.add_middleware(
     allow_headers=["*"],  
 )
 
-# Define a request model for the input
 class ParaphraseRequest(BaseModel):
+    language: str
     text: str
+    target_length: int = 100
 
+# Paraphrasing for non-Chinese text
 def get_first_synonym(word, pos=None):
     """Retrieve the first synonym from WordNet if available and appropriate."""
     synonyms = wordnet.synsets(word, pos=pos)
     if synonyms:
-        # Return the first lemma as the synonym, unless it's too technical or awkward
         lemma = synonyms[0].lemmas()[0].name()
-        # Ensure the lemma doesn't contain numbers, acronyms, or technical terms
         if not any(char.isdigit() for char in lemma) and len(lemma) < 20:
             return lemma.replace('_', ' ')
-    return word  # Return the original word if no suitable synonym is found
+    return word
 
 def paraphrase(text: str) -> str:
-    # Tokenize the input text into words
     words = nltk.word_tokenize(text)
     paraphrased_text = []
 
     for word in words:
         pos_tag = nltk.pos_tag([word])[0][1]
         
-        # Only replace nouns, verbs, adjectives, and adverbs
         if pos_tag.startswith('NN'):
             paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
         elif pos_tag.startswith('VB'):
@@ -52,29 +52,79 @@ def paraphrase(text: str) -> str:
         elif pos_tag.startswith('RB'):
             paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
         else:
-            paraphrased_word = word  # Keep the word unchanged if it's not one of the main POS categories
+            paraphrased_word = word
 
         paraphrased_text.append(paraphrased_word)
 
-    # Join the paraphrased words into a single string
     paraphrased_sentence = ' '.join(paraphrased_text)
-
-    # Capitalize the first letter of each sentence
-    sentences = nltk.sent_tokenize(paraphrased_sentence)  # Split into sentences
+    sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
-
-    # Join the capitalized sentences back together
     final_paraphrase = ' '.join(capitalized_sentences)
 
     return final_paraphrase
 
-@app.post("/generate/")
-async def paraphrase_text(request: ParaphraseRequest):
-    try:
-        paraphrased = paraphrase(request.text)
-        return {"original": request.text, "generated_text": paraphrased}
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail=str(e))
+# Chinese text generation using jieba and Markov chains
+class ChineseTextGenerator:
+    def _init_(self, text):
+        self.chain = {}
+        self.words = self.tokenize(text)
+        self.add_to_chain()
 
-# To run the server, use the command: uvicorn your_filename:app --reload
+    def tokenize(self, text):
+        return list(jieba.cut(text))
+
+    def add_to_chain(self):
+        for i in range(len(self.words) - 2):
+            current_pair = (self.words[i], self.words[i + 1])
+            next_word = self.words[i + 2]
+            if current_pair in self.chain:
+                if next_word not in self.chain[current_pair]:
+                    self.chain[current_pair].append(next_word)
+            else:
+                self.chain[current_pair] = [next_word]
+
+    def generate_text(self, input_length):
+        if input_length < 10:
+            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
+
+        required_length = max(1, int(input_length * 1.2))
+
+        if not self.chain:
+            return "未能生成内容，链为空。"
+
+        start_pair = random.choice(list(self.chain.keys()))
+        sentence = [start_pair[0], start_pair[1]]
+
+        while len(sentence) < required_length:
+            current_pair = (sentence[-2], sentence[-1])
+            next_words = self.chain.get(current_pair)
+            if not next_words:
+                break
+            next_word = random.choice(next_words)
+            sentence.append(next_word)
+
+        output_sentence = ''.join(sentence)
+
+        while len(output_sentence) < required_length:
+            next_word = random.choice(self.words)
+            sentence.append(next_word)
+            output_sentence = ''.join(sentence)
+
+        return output_sentence
+
+# API endpoint for text generation/paraphrasing
+@app.post("/generate/")
+async def generate_text(request: ParaphraseRequest):
+    if request.language.lower() == "chinese":
+        # Chinese-specific logic
+        generator = ChineseTextGenerator(request.text)
+        input_length = len(list(jieba.cut(request.text)))
+        generated_text = generator.generate_text(input_length)
+        return {"language": request.language, "generated_text": generated_text}
+    else:
+        # General paraphrasing logic
+        try:
+            paraphrased = paraphrase(request.text)
+            return {"language": request.language, "original": request.text, "generated_text": paraphrased}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
