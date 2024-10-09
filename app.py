@@ -14,7 +14,7 @@ nltk.download('averaged_perceptron_tagger', force=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
