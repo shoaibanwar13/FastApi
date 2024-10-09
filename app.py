@@ -5,11 +5,16 @@ import jieba  # For Chinese text segmentation
 import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
 nltk.download('punkt', force=True)
 nltk.download('averaged_perceptron_tagger', force=True)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(_name_)
 
 app = FastAPI()
 
@@ -28,7 +33,6 @@ class ParaphraseRequest(BaseModel):
 
 # Paraphrasing for non-Chinese text
 def get_first_synonym(word, pos=None):
-    """Retrieve the first synonym from WordNet if available and appropriate."""
     synonyms = wordnet.synsets(word, pos=pos)
     if synonyms:
         lemma = synonyms[0].lemmas()[0].name()
@@ -115,16 +119,19 @@ class ChineseTextGenerator:
 # API endpoint for text generation/paraphrasing
 @app.post("/generate/")
 async def generate_text(request: ParaphraseRequest):
-    if request.language.lower() == "chinese":
-        # Chinese-specific logic
-        generator = ChineseTextGenerator(request.text)
-        input_length = len(list(jieba.cut(request.text)))
-        generated_text = generator.generate_text(input_length)
-        return {"language": request.language, "generated_text": generated_text}
-    else:
-        # General paraphrasing logic
-        try:
+    try:
+        if request.language.lower() == "chinese":
+            # Chinese-specific logic
+            logger.info(f"Generating text for Chinese input: {request.text}")
+            generator = ChineseTextGenerator(request.text)
+            input_length = len(list(jieba.cut(request.text)))
+            generated_text = generator.generate_text(input_length)
+            return {"language": request.language, "generated_text": generated_text}
+        else:
+            # General paraphrasing logic
+            logger.info(f"Paraphrasing text for language: {request.language}")
             paraphrased = paraphrase(request.text)
             return {"language": request.language, "original": request.text, "generated_text": paraphrased}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
