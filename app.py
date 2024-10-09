@@ -122,13 +122,13 @@ def detect_heading_and_paragraph(text: str):
     # Split the text into lines
     lines = text.strip().split('\n')
     
-    # Assuming the first line is the heading if it has no punctuation or it's all capitalized
+    # Assuming the first line is the heading if it is short and does not end with punctuation
     heading = None
     if len(lines) > 0:
         first_line = lines[0].strip()
-        if first_line.isupper() or first_line[-1] not in ".!?":
+        if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
             heading = first_line
-            paragraph = ' '.join(lines[1:]).strip()  # Combine the rest as the paragraph
+            paragraph = '\n'.join(lines[1:]).strip()  # Keep the rest as the paragraph, preserve newlines
         else:
             paragraph = text.strip()
     else:
@@ -148,13 +148,13 @@ async def generate_text(request: ParaphraseRequest):
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
-            output = f"{heading}\n\n{generated_text}" if heading else generated_text
+            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
             return {"language": request.language, "generated_text": output}
         else:
             # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
             paraphrased = paraphrase(paragraph)
-            output = f"{heading}\n\n{paraphrased}" if heading else paraphrased
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
