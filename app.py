@@ -26,6 +26,7 @@ app.add_middleware(
     allow_headers=["*"],  
 )
 
+# Define a request model for the input, including heading and text
 class ParaphraseRequest(BaseModel):
     language: str
     text: str
@@ -116,22 +117,45 @@ class ChineseTextGenerator:
 
         return output_sentence
 
+# Function to detect heading and separate it from paragraph
+def detect_heading_and_paragraph(text: str):
+    # Split the text into lines
+    lines = text.strip().split('\n')
+    
+    # Assuming the first line is the heading if it has no punctuation or it's all capitalized
+    heading = None
+    if len(lines) > 0:
+        first_line = lines[0].strip()
+        if first_line.isupper() or first_line[-1] not in ".!?":
+            heading = first_line
+            paragraph = ' '.join(lines[1:]).strip()  # Combine the rest as the paragraph
+        else:
+            paragraph = text.strip()
+    else:
+        paragraph = text.strip()
+    
+    return heading, paragraph
+
 # API endpoint for text generation/paraphrasing
 @app.post("/generate/")
 async def generate_text(request: ParaphraseRequest):
     try:
+        heading, paragraph = detect_heading_and_paragraph(request.text)
+
         if request.language.lower() == "chinese":
             # Chinese-specific logic
-            logger.info(f"Generating text for Chinese input: {request.text}")
-            generator = ChineseTextGenerator(request.text)
-            input_length = len(list(jieba.cut(request.text)))
+            logger.info(f"Generating text for Chinese input: {paragraph}")
+            generator = ChineseTextGenerator(paragraph)
+            input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
-            return {"language": request.language, "generated_text": generated_text}
+            output = f"{heading}\n\n{generated_text}" if heading else generated_text
+            return {"language": request.language, "generated_text": output}
         else:
             # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
-            paraphrased = paraphrase(request.text)
-            return {"language": request.language, "original": request.text, "generated_text": paraphrased}
+            paraphrased = paraphrase(paragraph)
+            output = f"{heading}\n\n{paraphrased}" if heading else paraphrased
+            return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
