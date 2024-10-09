@@ -69,7 +69,7 @@ def paraphrase(text: str) -> str:
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def _init_(self, text):
+    def __init__(self, text):  # Constructor now accepts 'text'
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
