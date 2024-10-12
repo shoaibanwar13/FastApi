@@ -6,17 +6,13 @@ import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-import spacy
+from textblob import TextBlob
+from pattern.en import pluralize, singularize
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
 nltk.download('punkt', quiet=True)
 nltk.download('averaged_perceptron_tagger', quiet=True)
-
-# Load spaCy models for German, Dutch, and Spanish
-nlp_german = spacy.load('de_core_news_sm')
-nlp_dutch = spacy.load('nl_core_news_sm')
-nlp_spanish = spacy.load('es_core_news_sm')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,7 +34,7 @@ class ParaphraseRequest(BaseModel):
     text: str
     target_length: int = 100
 
-# Paraphrasing for non-Chinese text using NLTK for English and spaCy for other languages
+# Paraphrasing for non-Chinese text using NLTK for English and TextBlob for other languages
 def get_synonyms(word, pos=None):
     synonyms = wordnet.synsets(word, pos=pos)
     word_synonyms = [lemma.name().replace('_', ' ') for syn in synonyms for lemma in syn.lemmas()]
@@ -77,26 +73,25 @@ def humanize_sentence_en(sentence):
 
     return ' '.join(paraphrased_words).capitalize()
 
-def humanize_sentence_other(sentence, nlp_model):
-    doc = nlp_model(sentence)
-    paraphrased_words = []
-
-    for token in doc:
-        if token.pos_ in ['NOUN', 'VERB', 'ADJ', 'ADV']:
-            synonyms = [syn.text for syn in token.vocab if syn.has_vector and syn.is_alpha and syn.text != token.text]
-            paraphrased_words.append(random.choice(synonyms) if synonyms else token.text)
-        else:
-            paraphrased_words.append(token.text)
+def humanize_sentence_other(sentence, language):
+    blob = TextBlob(sentence)
+    if language == "dutch":
+        # Convert Dutch to singular/plural as needed
+        paraphrased_words = [pluralize(word) if blob.tags[i][1] == 'NNS' else singularize(word) for i, word in enumerate(blob.words)]
+    elif language == "spanish":
+        # Here you can add specific handling for Spanish
+        paraphrased_words = [word for word in blob.words]  # Placeholder, you may want to implement more
+    else:
+        paraphrased_words = [word for word in blob.words]  # Fallback
 
     return ' '.join(paraphrased_words).capitalize()
 
 def humanize_paragraph(text: str, language: str) -> str:
-    sentences = nltk.sent_tokenize(text) if language == "english" else [sent.text for sent in spacy.blank(language).nlp(text).sents]
-    if language.lower() in ['german', 'dutch', 'spanish']:
-        nlp_model = nlp_german if language.lower() == "german" else nlp_dutch if language.lower() == "dutch" else nlp_spanish
-        paraphrased_sentences = [humanize_sentence_other(sentence, nlp_model) for sentence in sentences]
+    sentences = nltk.sent_tokenize(text) if language == "english" else TextBlob(text).sentences
+    if language.lower() in ['dutch', 'spanish']:
+        paraphrased_sentences = [humanize_sentence_other(str(sentence), language) for sentence in sentences]
     else:
-        paraphrased_sentences = [humanize_sentence_en(sentence) for sentence in sentences]
+        paraphrased_sentences = [humanize_sentence_en(str(sentence)) for sentence in sentences]
     return ' '.join(paraphrased_sentences)
 
 # Chinese text generation using jieba and Markov chains
