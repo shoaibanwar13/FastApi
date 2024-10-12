@@ -1,12 +1,6 @@
-
-uvicorn==0.23.2
-nltk==3.8.1
-textblob==0.17.1
-requests==2.31.0
+fastapi==0.95.0
+uvicorn==0.22.0
+textblob==0.15.3
+pattern==3.6
 jieba==0.42.1
-fastapi==0.104.0
- 
-pydantic==2.0.3
-
-
-
+nltk==3.8.1
