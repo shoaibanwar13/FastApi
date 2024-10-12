@@ -9,8 +9,8 @@ import logging
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
-nltk.download('punkt', force=True)
-nltk.download('averaged_perceptron_tagger', force=True)
+nltk.download('punkt', quiet=True)
+nltk.download('averaged_perceptron_tagger', quiet=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,44 +33,57 @@ class ParaphraseRequest(BaseModel):
     target_length: int = 100
 
 # Paraphrasing for non-Chinese text
-def get_first_synonym(word, pos=None):
+def get_synonyms(word, pos=None):
     synonyms = wordnet.synsets(word, pos=pos)
+    word_synonyms = [lemma.name().replace('_', ' ') for syn in synonyms for lemma in syn.lemmas()]
+    word_synonyms = [syn for syn in set(word_synonyms) if syn != word and len(syn) < 20 and syn.isalpha()]
+    return word_synonyms
+
+def replace_with_synonyms(word, pos_tag):
+    pos = None
+    if pos_tag.startswith('NN'):
+        pos = wordnet.NOUN
+    elif pos_tag.startswith('VB'):
+        pos = wordnet.VERB
+    elif pos_tag.startswith('JJ'):
+        pos = wordnet.ADJ
+    elif pos_tag.startswith('RB'):
+        pos = wordnet.ADV
+
+    synonyms = get_synonyms(word, pos=pos)
     if synonyms:
-        lemma = synonyms[0].lemmas()[0].name()
-        if not any(char.isdigit() for char in lemma) and len(lemma) < 20:
-            return lemma.replace('_', ' ')
+        return random.choice(synonyms)
     return word
 
-def paraphrase(text: str) -> str:
-    words = nltk.word_tokenize(text)
-    paraphrased_text = []
+def humanize_sentence(sentence):
+    words = nltk.word_tokenize(sentence)
+    tagged_words = nltk.pos_tag(words)
+    paraphrased_words = []
 
-    for word in words:
-        pos_tag = nltk.pos_tag([word])[0][1]
-        
-        if pos_tag.startswith('NN'):
-            paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
-        elif pos_tag.startswith('VB'):
-            paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
-        elif pos_tag.startswith('JJ'):
-            paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
-        elif pos_tag.startswith('RB'):
-            paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
+    for word, tag in tagged_words:
+        # Replace nouns, verbs, adjectives, and adverbs with their synonyms to humanize the text
+        if tag.startswith(('NN', 'VB', 'JJ', 'RB')):
+            paraphrased_words.append(replace_with_synonyms(word, tag))
         else:
-            paraphrased_word = word
+            paraphrased_words.append(word)
 
-        paraphrased_text.append(paraphrased_word)
+    # Shuffle parts of the sentence slightly to create variation
+    if len(paraphrased_words) > 5:
+        random.shuffle(paraphrased_words[:5])  # Shuffle the first few words for variety
 
-    paraphrased_sentence = ' '.join(paraphrased_text)
-    sentences = nltk.sent_tokenize(paraphrased_sentence)
-    capitalized_sentences = [s.capitalize() for s in sentences]
-    final_paraphrase = ' '.join(capitalized_sentences)
+    paraphrased_sentence = ' '.join(paraphrased_words)
+    paraphrased_sentence = paraphrased_sentence.capitalize()
+    
+    return paraphrased_sentence
 
-    return final_paraphrase
+def humanize_paragraph(text: str) -> str:
+    sentences = nltk.sent_tokenize(text)
+    paraphrased_sentences = [humanize_sentence(sentence) for sentence in sentences]
+    return ' '.join(paraphrased_sentences)
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):  # Constructor now accepts 'text'
+    def __init__(self, text):
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -90,7 +103,7 @@ class ChineseTextGenerator:
 
     def generate_text(self, input_length):
         if input_length < 10:
-            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
+            return "输入的文本不足以生成新的内容。请提供更长的文本。"
 
         required_length = max(1, int(input_length * 1.2))
 
@@ -119,16 +132,13 @@ class ChineseTextGenerator:
 
 # Function to detect heading and separate it from paragraph
 def detect_heading_and_paragraph(text: str):
-    # Split the text into lines
     lines = text.strip().split('\n')
-    
-    # Assuming the first line is the heading if it is short and does not end with punctuation
     heading = None
     if len(lines) > 0:
         first_line = lines[0].strip()
         if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
             heading = first_line
-            paragraph = '\n'.join(lines[1:]).strip()  # Keep the rest as the paragraph, preserve newlines
+            paragraph = '\n'.join(lines[1:]).strip()
         else:
             paragraph = text.strip()
     else:
@@ -148,13 +158,13 @@ async def generate_text(request: ParaphraseRequest):
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
-            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
+            output = f"{heading}\n{generated_text}" if heading else generated_text
             return {"language": request.language, "generated_text": output}
         else:
             # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
-            paraphrased = paraphrase(paragraph)
-            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
+            paraphrased = humanize_paragraph(paragraph)
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
