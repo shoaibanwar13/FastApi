@@ -11,6 +11,8 @@ import logging
 nltk.download('wordnet', quiet=True)
 nltk.download('punkt', quiet=True)
 nltk.download('averaged_perceptron_tagger', quiet=True)
+nltk.download('maxent_ne_chunker', quiet=True)
+nltk.download('words', quiet=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],  
 )
 
-# Define a request model for the input, including heading and text
+# Define a request model for the input, including language and text
 class ParaphraseRequest(BaseModel):
     language: str
     text: str
@@ -39,7 +41,11 @@ def get_synonyms(word, pos=None):
     word_synonyms = [syn for syn in set(word_synonyms) if syn != word and len(syn) < 20 and syn.isalpha()]
     return word_synonyms
 
-def replace_with_synonyms(word, pos_tag):
+def replace_with_synonyms(word, pos_tag, named_entities):
+    # Check if the word is a named entity or is capitalized
+    if word in named_entities or word[0].isupper():
+        return word
+
     pos = None
     if pos_tag.startswith('NN'):
         pos = wordnet.NOUN
@@ -55,17 +61,27 @@ def replace_with_synonyms(word, pos_tag):
         return random.choice(synonyms)
     return word
 
-def humanize_sentence(sentence):
+def extract_named_entities(text):
+    words = nltk.word_tokenize(text)
+    tagged_words = nltk.pos_tag(words)
+    named_entities = set()
+
+    for chunk in nltk.ne_chunk(tagged_words):
+        if hasattr(chunk, 'label'):
+            # Combine the tokens that form the named entity (e.g., "New York")
+            named_entity = ' '.join(c[0] for c in chunk)
+            named_entities.add(named_entity)
+
+    return named_entities
+
+def humanize_sentence(sentence, named_entities):
     words = nltk.word_tokenize(sentence)
     tagged_words = nltk.pos_tag(words)
     paraphrased_words = []
 
     for word, tag in tagged_words:
-        # Replace nouns, verbs, adjectives, and adverbs with their synonyms to humanize the text
-        if tag.startswith(('NN', 'VB', 'JJ', 'RB')):
-            paraphrased_words.append(replace_with_synonyms(word, tag))
-        else:
-            paraphrased_words.append(word)
+        # Replace words with their synonyms unless they are named entities or capitalized words
+        paraphrased_words.append(replace_with_synonyms(word, tag, named_entities))
 
     # Shuffle parts of the sentence slightly to create variation
     if len(paraphrased_words) > 5:
@@ -77,8 +93,9 @@ def humanize_sentence(sentence):
     return paraphrased_sentence
 
 def humanize_paragraph(text: str) -> str:
+    named_entities = extract_named_entities(text)
     sentences = nltk.sent_tokenize(text)
-    paraphrased_sentences = [humanize_sentence(sentence) for sentence in sentences]
+    paraphrased_sentences = [humanize_sentence(sentence, named_entities) for sentence in sentences]
     return ' '.join(paraphrased_sentences)
 
 # Chinese text generation using jieba and Markov chains
