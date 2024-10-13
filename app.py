@@ -34,15 +34,12 @@ class ParaphraseRequest(BaseModel):
 
 # Paraphrasing for non-Chinese text
 def get_synonyms(word, pos=None):
-    # Fetch synonyms from wordnet
     synonyms = wordnet.synsets(word, pos=pos)
     word_synonyms = [lemma.name().replace('_', ' ') for syn in synonyms for lemma in syn.lemmas()]
     word_synonyms = [syn for syn in set(word_synonyms) if syn != word and len(syn) < 20 and syn.isalpha()]
-    
     return word_synonyms
 
 def replace_with_synonyms(word, pos_tag):
-    # Determine the part of speech tag and fetch synonyms accordingly
     pos = None
     if pos_tag.startswith('NN'):
         pos = wordnet.NOUN
@@ -54,7 +51,6 @@ def replace_with_synonyms(word, pos_tag):
         pos = wordnet.ADV
 
     synonyms = get_synonyms(word, pos=pos)
-    # Choose a synonym if available, otherwise keep the original word
     if synonyms:
         return random.choice(synonyms)
     return word
@@ -65,15 +61,15 @@ def humanize_sentence(sentence):
     paraphrased_words = []
 
     for word, tag in tagged_words:
-        # Replace nouns, verbs, adjectives, and adverbs with synonyms to humanize the text
+        # Replace nouns, verbs, adjectives, and adverbs with their synonyms to humanize the text
         if tag.startswith(('NN', 'VB', 'JJ', 'RB')):
             paraphrased_words.append(replace_with_synonyms(word, tag))
         else:
             paraphrased_words.append(word)
 
-    # Shuffle parts of the sentence slightly to create variation while keeping meaning
+    # Shuffle parts of the sentence slightly to create variation
     if len(paraphrased_words) > 5:
-        random.shuffle(paraphrased_words[:3])  # Shuffle the first few words for variety
+        random.shuffle(paraphrased_words[:5])  # Shuffle the first few words for variety
 
     paraphrased_sentence = ' '.join(paraphrased_words)
     paraphrased_sentence = paraphrased_sentence.capitalize()
