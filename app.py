@@ -6,6 +6,7 @@ import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import re
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
@@ -34,6 +35,11 @@ class ParaphraseRequest(BaseModel):
     text: str
     target_length: int = 100
 
+# Function to check if a word is an acronym
+def is_acronym(word):
+    # Use regex to detect if the word is an acronym (e.g., all uppercase letters or letters with numbers)
+    return bool(re.fullmatch(r'[A-Z0-9]+', word))
+
 # Paraphrasing for non-Chinese text
 def get_synonyms(word, pos=None):
     synonyms = wordnet.synsets(word, pos=pos)
@@ -42,8 +48,8 @@ def get_synonyms(word, pos=None):
     return word_synonyms
 
 def replace_with_synonyms(word, pos_tag, named_entities):
-    # Check if the word is a named entity or is capitalized
-    if word in named_entities or word[0].isupper():
+    # Check if the word is a named entity, capitalized word, or acronym
+    if word in named_entities or word[0].isupper() or is_acronym(word):
         return word
 
     pos = None
@@ -147,7 +153,7 @@ class ChineseTextGenerator:
 
         return output_sentence
 
-# Function to detect heading and separate it from paragraph
+# Function to detect heading and separate it from the paragraph
 def detect_heading_and_paragraph(text: str):
     lines = text.strip().split('\n')
     heading = None
