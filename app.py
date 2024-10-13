@@ -1,97 +1,161 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import random
+import jieba  # For Chinese text segmentation
 import nltk
 from nltk.corpus import wordnet
-import random
-import re
+from fastapi.middleware.cors import CORSMiddleware
+import logging
 
-# Download necessary NLTK resources
-nltk.download('punkt')
-nltk.download('averaged_perceptron_tagger')
-nltk.download('wordnet')
-nltk.download('maxent_ne_chunker')
-nltk.download('words')
+# Download necessary NLTK data files
+nltk.download('wordnet', quiet=True)
+nltk.download('punkt', force=True)
+nltk.download('averaged_perceptron_tagger', force=True)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-class TextInput(BaseModel):
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
+
+# Define a request model for the input, including heading and text
+class ParaphraseRequest(BaseModel):
     language: str
     text: str
+    target_length: int = 100
 
-def extract_named_entities(text):
-    """Extract named entities from the text."""
-    entities = set()
-    words = nltk.word_tokenize(text)
-    pos_tags = nltk.pos_tag(words)
-    named_entities = nltk.ne_chunk(pos_tags)
-    
-    for chunk in named_entities:
-        if hasattr(chunk, 'label'):
-            entities.add(' '.join(c[0] for c in chunk.leaves()))
-    
-    return entities
-
-def get_synonyms(word, pos=None):
-    """Retrieve synonyms for a given word."""
+# Paraphrasing for non-Chinese text
+def get_first_synonym(word, pos=None):
     synonyms = wordnet.synsets(word, pos=pos)
-    word_synonyms = set()
-    
-    for syn in synonyms:
-        for lemma in syn.lemmas():
-            if lemma.name() != word and len(lemma.name()) < 20 and lemma.name().isalpha():
-                word_synonyms.add(lemma.name().replace('_', ' '))
-    
-    return list(word_synonyms)
-
-def replace_with_synonyms(word, pos_tag, named_entities):
-    """Replace a word with its synonym if applicable."""
-    if word in named_entities or word[0].isupper() or not word.isalpha():
-        return word
-
-    pos = None
-    if pos_tag.startswith('NN'):
-        pos = wordnet.NOUN
-    elif pos_tag.startswith('VB'):
-        pos = wordnet.VERB
-    elif pos_tag.startswith('JJ'):
-        pos = wordnet.ADJ
-    elif pos_tag.startswith('RB'):
-        pos = wordnet.ADV
-
-    synonyms = get_synonyms(word, pos=pos)
     if synonyms:
-        return random.choice(synonyms)
+        lemma = synonyms[0].lemmas()[0].name()
+        if not any(char.isdigit() for char in lemma) and len(lemma) < 20:
+            return lemma.replace('_', ' ')
     return word
 
-def humanize_sentence(sentence, named_entities):
-    """Humanize a single sentence by replacing words with synonyms."""
-    words = nltk.word_tokenize(sentence)
-    tagged_words = nltk.pos_tag(words)
-    paraphrased_words = []
+def paraphrase(text: str) -> str:
+    words = nltk.word_tokenize(text)
+    paraphrased_text = []
 
-    for word, tag in tagged_words:
-        paraphrased_words.append(replace_with_synonyms(word, tag, named_entities))
+    for word in words:
+        pos_tag = nltk.pos_tag([word])[0][1]
+        
+        if pos_tag.startswith('NN'):
+            paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
+        elif pos_tag.startswith('VB'):
+            paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
+        elif pos_tag.startswith('JJ'):
+            paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
+        elif pos_tag.startswith('RB'):
+            paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
+        else:
+            paraphrased_word = word
 
-    paraphrased_sentence = ' '.join(paraphrased_words).replace('  ', ' ').strip()
-    return paraphrased_sentence.capitalize() + '.'
+        paraphrased_text.append(paraphrased_word)
 
-def humanize_paragraph(text: str) -> str:
-    """Humanize a paragraph by processing each sentence."""
-    named_entities = extract_named_entities(text)
-    sentences = nltk.sent_tokenize(text)
-    paraphrased_sentences = [humanize_sentence(sentence, named_entities) for sentence in sentences]
-    return ' '.join(paraphrased_sentences)
+    paraphrased_sentence = ' '.join(paraphrased_text)
+    sentences = nltk.sent_tokenize(paraphrased_sentence)
+    capitalized_sentences = [s.capitalize() for s in sentences]
+    final_paraphrase = ' '.join(capitalized_sentences)
 
-@app.post("/humanize/")
-async def humanize_text(input: TextInput):
-    """Endpoint to humanize input text."""
-    humanized_text = humanize_paragraph(input.text)
-    return {
-        "language": input.language,
-        "original": input.text,
-        "generated_text": humanized_text
-    }
+    return final_paraphrase
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# Chinese text generation using jieba and Markov chains
+class ChineseTextGenerator:
+    def __init__(self, text):  # Constructor now accepts 'text'
+        self.chain = {}
+        self.words = self.tokenize(text)
+        self.add_to_chain()
+
+    def tokenize(self, text):
+        return list(jieba.cut(text))
+
+    def add_to_chain(self):
+        for i in range(len(self.words) - 2):
+            current_pair = (self.words[i], self.words[i + 1])
+            next_word = self.words[i + 2]
+            if current_pair in self.chain:
+                if next_word not in self.chain[current_pair]:
+                    self.chain[current_pair].append(next_word)
+            else:
+                self.chain[current_pair] = [next_word]
+
+    def generate_text(self, input_length):
+        if input_length < 10:
+            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
+
+        required_length = max(1, int(input_length * 1.2))
+
+        if not self.chain:
+            return "未能生成内容，链为空。"
+
+        start_pair = random.choice(list(self.chain.keys()))
+        sentence = [start_pair[0], start_pair[1]]
+
+        while len(sentence) < required_length:
+            current_pair = (sentence[-2], sentence[-1])
+            next_words = self.chain.get(current_pair)
+            if not next_words:
+                break
+            next_word = random.choice(next_words)
+            sentence.append(next_word)
+
+        output_sentence = ''.join(sentence)
+
+        while len(output_sentence) < required_length:
+            next_word = random.choice(self.words)
+            sentence.append(next_word)
+            output_sentence = ''.join(sentence)
+
+        return output_sentence
+
+# Function to detect heading and separate it from paragraph
+def detect_heading_and_paragraph(text: str):
+    # Split the text into lines
+    lines = text.strip().split('\n')
+    
+    # Assuming the first line is the heading if it is short and does not end with punctuation
+    heading = None
+    if len(lines) > 0:
+        first_line = lines[0].strip()
+        if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
+            heading = first_line
+            paragraph = '\n'.join(lines[1:]).strip()  # Keep the rest as the paragraph, preserve newlines
+        else:
+            paragraph = text.strip()
+    else:
+        paragraph = text.strip()
+    
+    return heading, paragraph
+
+# API endpoint for text generation/paraphrasing
+@app.post("/generate/")
+async def generate_text(request: ParaphraseRequest):
+    try:
+        heading, paragraph = detect_heading_and_paragraph(request.text)
+
+        if request.language.lower() == "chinese":
+            # Chinese-specific logic
+            logger.info(f"Generating text for Chinese input: {paragraph}")
+            generator = ChineseTextGenerator(paragraph)
+            input_length = len(list(jieba.cut(paragraph)))
+            generated_text = generator.generate_text(input_length)
+            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
+            return {"language": request.language, "generated_text": output}
+        else:
+            # General paraphrasing logic
+            logger.info(f"Paraphrasing text for language: {request.language}")
+            paraphrased = paraphrase(paragraph)
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
+            return {"language": request.language, "original": request.text, "generated_text": output}
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
