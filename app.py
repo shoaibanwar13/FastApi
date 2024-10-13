@@ -6,8 +6,6 @@ import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-from textblob import TextBlob
-from pattern.en import pluralize, singularize
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
@@ -34,14 +32,17 @@ class ParaphraseRequest(BaseModel):
     text: str
     target_length: int = 100
 
-# Paraphrasing for non-Chinese text using NLTK for English and TextBlob for other languages
+# Paraphrasing for non-Chinese text
 def get_synonyms(word, pos=None):
+    # Fetch synonyms from wordnet
     synonyms = wordnet.synsets(word, pos=pos)
     word_synonyms = [lemma.name().replace('_', ' ') for syn in synonyms for lemma in syn.lemmas()]
     word_synonyms = [syn for syn in set(word_synonyms) if syn != word and len(syn) < 20 and syn.isalpha()]
+    
     return word_synonyms
 
 def replace_with_synonyms(word, pos_tag):
+    # Determine the part of speech tag and fetch synonyms accordingly
     pos = None
     if pos_tag.startswith('NN'):
         pos = wordnet.NOUN
@@ -53,45 +54,35 @@ def replace_with_synonyms(word, pos_tag):
         pos = wordnet.ADV
 
     synonyms = get_synonyms(word, pos=pos)
+    # Choose a synonym if available, otherwise keep the original word
     if synonyms:
         return random.choice(synonyms)
     return word
 
-def humanize_sentence_en(sentence):
+def humanize_sentence(sentence):
     words = nltk.word_tokenize(sentence)
     tagged_words = nltk.pos_tag(words)
     paraphrased_words = []
 
     for word, tag in tagged_words:
+        # Replace nouns, verbs, adjectives, and adverbs with synonyms to humanize the text
         if tag.startswith(('NN', 'VB', 'JJ', 'RB')):
             paraphrased_words.append(replace_with_synonyms(word, tag))
         else:
             paraphrased_words.append(word)
 
+    # Shuffle parts of the sentence slightly to create variation while keeping meaning
     if len(paraphrased_words) > 5:
-        random.shuffle(paraphrased_words[:5])
+        random.shuffle(paraphrased_words[:3])  # Shuffle the first few words for variety
 
-    return ' '.join(paraphrased_words).capitalize()
+    paraphrased_sentence = ' '.join(paraphrased_words)
+    paraphrased_sentence = paraphrased_sentence.capitalize()
+    
+    return paraphrased_sentence
 
-def humanize_sentence_other(sentence, language):
-    blob = TextBlob(sentence)
-    if language == "dutch":
-        # Convert Dutch to singular/plural as needed
-        paraphrased_words = [pluralize(word) if blob.tags[i][1] == 'NNS' else singularize(word) for i, word in enumerate(blob.words)]
-    elif language == "spanish":
-        # Here you can add specific handling for Spanish
-        paraphrased_words = [word for word in blob.words]  # Placeholder, you may want to implement more
-    else:
-        paraphrased_words = [word for word in blob.words]  # Fallback
-
-    return ' '.join(paraphrased_words).capitalize()
-
-def humanize_paragraph(text: str, language: str) -> str:
-    sentences = nltk.sent_tokenize(text) if language == "english" else TextBlob(text).sentences
-    if language.lower() in ['dutch', 'spanish']:
-        paraphrased_sentences = [humanize_sentence_other(str(sentence), language) for sentence in sentences]
-    else:
-        paraphrased_sentences = [humanize_sentence_en(str(sentence)) for sentence in sentences]
+def humanize_paragraph(text: str) -> str:
+    sentences = nltk.sent_tokenize(text)
+    paraphrased_sentences = [humanize_sentence(sentence) for sentence in sentences]
     return ' '.join(paraphrased_sentences)
 
 # Chinese text generation using jieba and Markov chains
@@ -166,6 +157,7 @@ async def generate_text(request: ParaphraseRequest):
         heading, paragraph = detect_heading_and_paragraph(request.text)
 
         if request.language.lower() == "chinese":
+            # Chinese-specific logic
             logger.info(f"Generating text for Chinese input: {paragraph}")
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
@@ -173,8 +165,9 @@ async def generate_text(request: ParaphraseRequest):
             output = f"{heading}\n{generated_text}" if heading else generated_text
             return {"language": request.language, "generated_text": output}
         else:
+            # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
-            paraphrased = humanize_paragraph(paragraph, request.language.lower())
+            paraphrased = humanize_paragraph(paragraph)
             output = f"{heading}\n{paraphrased}" if heading else paraphrased
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
