@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import random
+import re
 import jieba  # For Chinese text segmentation
 import nltk
 from nltk.corpus import wordnet
@@ -41,6 +42,34 @@ def get_first_synonym(word, pos=None):
             return lemma.replace('_', ' ')
     return word
 
+def fix_grammar(text: str) -> str:
+    """
+    Basic grammar fixes such as correcting article usage and removing extra spaces.
+    """
+    # Remove spaces before punctuation (.,!?)
+    text = re.sub(r'\s+([.,!?])', r'\1', text)
+
+    # Correcting common articles usage
+    text = re.sub(r'\b(a)\s+([aeiouAEIOU])', r'an \2', text)  # 'a apple' -> 'an apple'
+    text = re.sub(r'\b(an)\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])', r'a \2', text)  # 'an book' -> 'a book'
+    
+    # Simplistic pluralization fix
+    words = nltk.word_tokenize(text)
+    pos_tags = nltk.pos_tag(words)
+    corrected_words = []
+
+    for word, tag in pos_tags:
+        if tag == 'NN' and word.lower() != 'I':  # Simple rule for singular nouns (not 'I')
+            corrected_word = get_first_synonym(word, pos=wordnet.NOUN)
+            # Add 's' if it might be a plural context
+            if corrected_word and corrected_word[-1] != 's':
+                corrected_word += 's'
+        else:
+            corrected_word = word
+        corrected_words.append(corrected_word)
+
+    return ' '.join(corrected_words)
+
 def paraphrase(text: str) -> str:
     words = nltk.word_tokenize(text)
     paraphrased_text = []
@@ -65,12 +94,15 @@ def paraphrase(text: str) -> str:
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
     final_paraphrase = ' '.join(capitalized_sentences)
+    
+    # Apply grammar fixes
+    final_paraphrase = fix_grammar(final_paraphrase)
 
     return final_paraphrase
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):  # Constructor now accepts 'text'
+    def __init__(self, text):
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -90,7 +122,7 @@ class ChineseTextGenerator:
 
     def generate_text(self, input_length):
         if input_length < 10:
-            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
+            return "输入的文本不足以生成新的内容。请提供更长的文本。"
 
         required_length = max(1, int(input_length * 1.2))
 
@@ -119,16 +151,14 @@ class ChineseTextGenerator:
 
 # Function to detect heading and separate it from paragraph
 def detect_heading_and_paragraph(text: str):
-    # Split the text into lines
     lines = text.strip().split('\n')
     
-    # Assuming the first line is the heading if it is short and does not end with punctuation
     heading = None
     if len(lines) > 0:
         first_line = lines[0].strip()
         if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
             heading = first_line
-            paragraph = '\n'.join(lines[1:]).strip()  # Keep the rest as the paragraph, preserve newlines
+            paragraph = '\n'.join(lines[1:]).strip()
         else:
             paragraph = text.strip()
     else:
@@ -143,18 +173,16 @@ async def generate_text(request: ParaphraseRequest):
         heading, paragraph = detect_heading_and_paragraph(request.text)
 
         if request.language.lower() == "chinese":
-            # Chinese-specific logic
             logger.info(f"Generating text for Chinese input: {paragraph}")
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
-            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
+            output = f"{heading}\n{generated_text}" if heading else generated_text
             return {"language": request.language, "generated_text": output}
         else:
-            # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
             paraphrased = paraphrase(paragraph)
-            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
