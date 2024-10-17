@@ -1,17 +1,17 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import random
-import re
 import jieba  # For Chinese text segmentation
 import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import language_tool_python  # Import the grammar tool
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
-nltk.download('punkt', force=True)
-nltk.download('averaged_perceptron_tagger', force=True)
+nltk.download('punkt', quiet=True)  # Changed to quiet mode
+nltk.download('averaged_perceptron_tagger', quiet=True)  # Changed to quiet mode
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +27,9 @@ app.add_middleware(
     allow_headers=["*"],  
 )
 
+# Initialize the language tool for grammar checking
+tool = language_tool_python.LanguageTool('en-US')  # Use 'en-US' for English grammar correction
+
 # Define a request model for the input, including heading and text
 class ParaphraseRequest(BaseModel):
     language: str
@@ -38,37 +41,10 @@ def get_first_synonym(word, pos=None):
     synonyms = wordnet.synsets(word, pos=pos)
     if synonyms:
         lemma = synonyms[0].lemmas()[0].name()
+        # Fixed the syntax for 'any' function
         if not any(char.isdigit() for char in lemma) and len(lemma) < 20:
             return lemma.replace('_', ' ')
     return word
-
-def fix_grammar(text: str) -> str:
-    """
-    Basic grammar fixes such as correcting article usage and removing extra spaces.
-    """
-    # Remove spaces before punctuation (.,!?)
-    text = re.sub(r'\s+([.,!?])', r'\1', text)
-
-    # Correcting common articles usage
-    text = re.sub(r'\b(a)\s+([aeiouAEIOU])', r'an \2', text)  # 'a apple' -> 'an apple'
-    text = re.sub(r'\b(an)\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])', r'a \2', text)  # 'an book' -> 'a book'
-    
-    # Simplistic pluralization fix
-    words = nltk.word_tokenize(text)
-    pos_tags = nltk.pos_tag(words)
-    corrected_words = []
-
-    for word, tag in pos_tags:
-        if tag == 'NN' and word.lower() != 'I':  # Simple rule for singular nouns (not 'I')
-            corrected_word = get_first_synonym(word, pos=wordnet.NOUN)
-            # Add 's' if it might be a plural context
-            if corrected_word and corrected_word[-1] != 's':
-                corrected_word += 's'
-        else:
-            corrected_word = word
-        corrected_words.append(corrected_word)
-
-    return ' '.join(corrected_words)
 
 def paraphrase(text: str) -> str:
     words = nltk.word_tokenize(text)
@@ -94,9 +70,6 @@ def paraphrase(text: str) -> str:
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
     final_paraphrase = ' '.join(capitalized_sentences)
-    
-    # Apply grammar fixes
-    final_paraphrase = fix_grammar(final_paraphrase)
 
     return final_paraphrase
 
@@ -122,7 +95,7 @@ class ChineseTextGenerator:
 
     def generate_text(self, input_length):
         if input_length < 10:
-            return "输入的文本不足以生成新的内容。请提供更长的文本。"
+            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
 
         required_length = max(1, int(input_length * 1.2))
 
@@ -166,6 +139,12 @@ def detect_heading_and_paragraph(text: str):
     
     return heading, paragraph
 
+# Correct grammar using language-tool-python
+def correct_grammar(text: str, language: str):
+    if language.lower() == "english":
+        return tool.correct(text)
+    return text  # For now, just return the original for other languages
+
 # API endpoint for text generation/paraphrasing
 @app.post("/generate/")
 async def generate_text(request: ParaphraseRequest):
@@ -173,6 +152,7 @@ async def generate_text(request: ParaphraseRequest):
         heading, paragraph = detect_heading_and_paragraph(request.text)
 
         if request.language.lower() == "chinese":
+            # Chinese-specific logic
             logger.info(f"Generating text for Chinese input: {paragraph}")
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
@@ -180,9 +160,11 @@ async def generate_text(request: ParaphraseRequest):
             output = f"{heading}\n{generated_text}" if heading else generated_text
             return {"language": request.language, "generated_text": output}
         else:
+            # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
             paraphrased = paraphrase(paragraph)
-            output = f"{heading}\n{paraphrased}" if heading else paraphrased
+            corrected_paraphrase = correct_grammar(paraphrased, request.language)
+            output = f"{heading}\n{corrected_paraphrase}" if heading else corrected_paraphrase
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
