@@ -6,11 +6,12 @@ import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-from textblob import TextBlob  # Import TextBlob for grammar correction
+import language_tool_python  # Import the LanguageTool library
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
 nltk.download('punkt', force=True)
+nltk.download('averaged_perceptron_tagger', force=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,12 +32,6 @@ class ParaphraseRequest(BaseModel):
     language: str
     text: str
     target_length: int = 100
-
-# Function to correct grammar using TextBlob
-def correct_grammar(text: str) -> str:
-    blob = TextBlob(text)
-    corrected_text = str(blob.correct())  # Correct the grammar
-    return corrected_text
 
 # Paraphrasing for non-Chinese text
 def get_first_synonym(word, pos=None):
@@ -74,9 +69,16 @@ def paraphrase(text: str) -> str:
 
     return final_paraphrase
 
+# Function for grammar correction
+def correct_grammar(text: str) -> str:
+    tool = language_tool_python.LanguageTool('en-US')  # Specify the language you need
+    matches = tool.check(text)
+    corrected_text = language_tool_python.utils.correct(text, matches)
+    return corrected_text
+
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):
+    def __init__(self, text):  # Constructor now accepts 'text'
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -123,16 +125,18 @@ class ChineseTextGenerator:
 
         return output_sentence
 
-# Function to detect heading and separate it from paragraph
+# Function to detect heading and separate it from the paragraph
 def detect_heading_and_paragraph(text: str):
+    # Split the text into lines
     lines = text.strip().split('\n')
     
+    # Assuming the first line is the heading if it is short and does not end with punctuation
     heading = None
     if len(lines) > 0:
         first_line = lines[0].strip()
         if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
             heading = first_line
-            paragraph = '\n'.join(lines[1:]).strip()
+            paragraph = '\n'.join(lines[1:]).strip()  # Keep the rest as the paragraph, preserve newlines
         else:
             paragraph = text.strip()
     else:
@@ -146,22 +150,21 @@ async def generate_text(request: ParaphraseRequest):
     try:
         heading, paragraph = detect_heading_and_paragraph(request.text)
 
-        # Correct grammar before paraphrasing
-        corrected_paragraph = correct_grammar(paragraph)
-
         if request.language.lower() == "chinese":
             # Chinese-specific logic
-            logger.info(f"Generating text for Chinese input: {corrected_paragraph}")
-            generator = ChineseTextGenerator(corrected_paragraph)
-            input_length = len(list(jieba.cut(corrected_paragraph)))
+            logger.info(f"Generating text for Chinese input: {paragraph}")
+            generator = ChineseTextGenerator(paragraph)
+            input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
-            output = f"{heading}\n{generated_text}" if heading else generated_text  
+            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
+            output = correct_grammar(output)  # Correct grammar after generation
             return {"language": request.language, "generated_text": output}
         else:
             # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
-            paraphrased = paraphrase(corrected_paragraph)
-            output = f"{heading}\n{paraphrased}" if heading else paraphrased  
+            paraphrased = paraphrase(paragraph)
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
+            output = correct_grammar(output)  # Correct grammar after paraphrasing
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
