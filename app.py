@@ -6,12 +6,11 @@ import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-import language_tool_python  # Import the grammar tool
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
-nltk.download('punkt', quiet=True)  # Changed to quiet mode
-nltk.download('averaged_perceptron_tagger', quiet=True)  # Changed to quiet mode
+nltk.download('punkt', force=True)
+nltk.download('averaged_perceptron_tagger', force=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,9 +26,6 @@ app.add_middleware(
     allow_headers=["*"],  
 )
 
-# Initialize the language tool for grammar checking
-tool = language_tool_python.LanguageTool('en-US')  # Use 'en-US' for English grammar correction
-
 # Define a request model for the input, including heading and text
 class ParaphraseRequest(BaseModel):
     language: str
@@ -41,7 +37,6 @@ def get_first_synonym(word, pos=None):
     synonyms = wordnet.synsets(word, pos=pos)
     if synonyms:
         lemma = synonyms[0].lemmas()[0].name()
-        # Fixed the syntax for 'any' function
         if not any(char.isdigit() for char in lemma) and len(lemma) < 20:
             return lemma.replace('_', ' ')
     return word
@@ -75,7 +70,7 @@ def paraphrase(text: str) -> str:
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):
+    def __init__(self, text):  # Constructor now accepts 'text'
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -124,26 +119,22 @@ class ChineseTextGenerator:
 
 # Function to detect heading and separate it from paragraph
 def detect_heading_and_paragraph(text: str):
+    # Split the text into lines
     lines = text.strip().split('\n')
     
+    # Assuming the first line is the heading if it is short and does not end with punctuation
     heading = None
     if len(lines) > 0:
         first_line = lines[0].strip()
         if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
             heading = first_line
-            paragraph = '\n'.join(lines[1:]).strip()
+            paragraph = '\n'.join(lines[1:]).strip()  # Keep the rest as the paragraph, preserve newlines
         else:
             paragraph = text.strip()
     else:
         paragraph = text.strip()
     
     return heading, paragraph
-
-# Correct grammar using language-tool-python
-def correct_grammar(text: str, language: str):
-    if language.lower() == "english":
-        return tool.correct(text)
-    return text  # For now, just return the original for other languages
 
 # API endpoint for text generation/paraphrasing
 @app.post("/generate/")
@@ -157,15 +148,16 @@ async def generate_text(request: ParaphraseRequest):
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
-            output = f"{heading}\n{generated_text}" if heading else generated_text
+            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
             return {"language": request.language, "generated_text": output}
         else:
             # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
             paraphrased = paraphrase(paragraph)
-            corrected_paraphrase = correct_grammar(paraphrased, request.language)
-            output = f"{heading}\n{corrected_paraphrase}" if heading else corrected_paraphrase
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
