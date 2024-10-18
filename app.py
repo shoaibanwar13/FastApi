@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import random
@@ -7,6 +9,31 @@ from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import language_tool_python  # Import the LanguageTool library
+
+# Function to check if Java is installed
+def check_java_installed():
+    try:
+        # Attempt to get Java version
+        result = subprocess.run(['java', '-version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            print("Java is installed:")
+            print(result.stderr)
+            return True
+    except FileNotFoundError:
+        print("Java is not installed.")
+    return False
+
+# Function to guide user on how to install Java
+def install_java():
+    print("Java is required for this application. Please install Java.")
+    # Here you can guide the user on how to install Java based on their OS
+    print("For Ubuntu, you can run: sudo apt install openjdk-11-jdk")
+    print("For Windows, download from https://www.oracle.com/java/technologies/javase-jdk11-downloads.html")
+    sys.exit(1)
+
+# Check if Java is installed; if not, prompt for installation
+if not check_java_installed():
+    install_java()
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
