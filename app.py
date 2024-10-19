@@ -6,8 +6,6 @@ import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-import re
-import requests
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
@@ -27,19 +25,6 @@ app.add_middleware(
     allow_methods=["*"],  
     allow_headers=["*"],  
 )
-
-# Hugging Face API details for BART model
-API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
-headers = {"Authorization": "Bearer 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"}
-
-# Function to query Hugging Face API
-def query_bart(payload):
-    response = requests.post(API_URL, headers=headers, json=payload)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        logger.error(f"Hugging Face API error: {response.text}")
-        return None
 
 # Define a request model for the input, including heading and text
 class ParaphraseRequest(BaseModel):
@@ -77,9 +62,6 @@ def paraphrase(text: str) -> str:
         paraphrased_text.append(paraphrased_word)
 
     paraphrased_sentence = ' '.join(paraphrased_text)
-
-    # Correct spacing for punctuation
-    paraphrased_sentence = re.sub(r'\s+([,.!?])', r'\1', paraphrased_sentence)
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
     final_paraphrase = ' '.join(capitalized_sentences)
@@ -88,7 +70,7 @@ def paraphrase(text: str) -> str:
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):
+    def __init__(self, text):  # Constructor now accepts 'text'
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -137,17 +119,21 @@ class ChineseTextGenerator:
 
 # Function to detect heading and separate it from paragraph
 def detect_heading_and_paragraph(text: str):
+    # Split the text into lines
     lines = text.strip().split('\n')
+    
+    # Assuming the first line is the heading if it is short and does not end with punctuation
     heading = None
     if len(lines) > 0:
         first_line = lines[0].strip()
         if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
             heading = first_line
-            paragraph = '\n'.join(lines[1:]).strip()
+            paragraph = '\n'.join(lines[1:]).strip()  # Keep the rest as the paragraph, preserve newlines
         else:
             paragraph = text.strip()
     else:
         paragraph = text.strip()
+    
     return heading, paragraph
 
 # API endpoint for text generation/paraphrasing
@@ -157,26 +143,18 @@ async def generate_text(request: ParaphraseRequest):
         heading, paragraph = detect_heading_and_paragraph(request.text)
 
         if request.language.lower() == "chinese":
+            # Chinese-specific logic
             logger.info(f"Generating text for Chinese input: {paragraph}")
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
-            output = f"{heading}\n{generated_text}" if heading else generated_text
+            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
             return {"language": request.language, "generated_text": output}
         else:
+            # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
             paraphrased = paraphrase(paragraph)
-
-            # Use the BART model for further refinement
-            logger.info(f"Sending text to BART for further processing.")
-            bart_response = query_bart({"inputs": paraphrased})
-
-            if bart_response and "summary_text" in bart_response:
-                final_output = bart_response["summary_text"]
-            else:
-                final_output = paraphrased
-
-            output = f"{heading}\n{final_output}" if heading else final_output
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
