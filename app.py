@@ -6,6 +6,7 @@ import nltk
 from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import requests
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
@@ -20,10 +21,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Define a request model for the input, including heading and text
@@ -31,6 +32,14 @@ class ParaphraseRequest(BaseModel):
     language: str
     text: str
     target_length: int = 100
+
+# Hugging Face API details
+API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
+headers = {"Authorization": "Bearer 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"}
+
+def query_huggingface(payload):
+    response = requests.post(API_URL, headers=headers, json=payload)
+    return response.json()
 
 # Paraphrasing for non-Chinese text
 def get_first_synonym(word, pos=None):
@@ -70,7 +79,7 @@ def paraphrase(text: str) -> str:
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):  # Constructor now accepts 'text'
+    def __init__(self, text):
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -119,16 +128,14 @@ class ChineseTextGenerator:
 
 # Function to detect heading and separate it from paragraph
 def detect_heading_and_paragraph(text: str):
-    # Split the text into lines
     lines = text.strip().split('\n')
     
-    # Assuming the first line is the heading if it is short and does not end with punctuation
     heading = None
     if len(lines) > 0:
         first_line = lines[0].strip()
         if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
             heading = first_line
-            paragraph = '\n'.join(lines[1:]).strip()  # Keep the rest as the paragraph, preserve newlines
+            paragraph = '\n'.join(lines[1:]).strip()
         else:
             paragraph = text.strip()
     else:
@@ -143,19 +150,27 @@ async def generate_text(request: ParaphraseRequest):
         heading, paragraph = detect_heading_and_paragraph(request.text)
 
         if request.language.lower() == "chinese":
-            # Chinese-specific logic
             logger.info(f"Generating text for Chinese input: {paragraph}")
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
-            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
-            return {"language": request.language, "generated_text": output}
         else:
-            # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
-            paraphrased = paraphrase(paragraph)
-            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
-            return {"language": request.language, "original": request.text, "generated_text": output}
+            generated_text = paraphrase(paragraph)
+        
+        # Query Hugging Face BART model for summarization
+        output = query_huggingface({"inputs": generated_text})
+
+        if "summary_text" in output:
+            summarized_text = output["summary_text"]
+        else:
+            raise Exception("Failed to summarize text")
+
+        # Add heading back to the summarized text if there was one
+        final_output = f"{heading}\n{summarized_text}" if heading else summarized_text
+
+        return {"language": request.language, "original": request.text, "generated_text": final_output}
+    
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
