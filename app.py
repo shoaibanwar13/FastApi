@@ -1,3 +1,4 @@
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import random
 import jieba  # For Chinese text segmentation
@@ -161,4 +162,4 @@ async def generate_text(request: ParaphraseRequest):
             return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")  
