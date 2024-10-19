@@ -1,4 +1,3 @@
-from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import random
 import jieba  # For Chinese text segmentation
@@ -7,19 +6,6 @@ from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import re
-import requests
-
-# Hugging Face API details
-API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
-headers = {"Authorization": "Bearer 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"}
-
-# Function to query Hugging Face API
-def query_huggingface_api(payload):
-    response = requests.post(API_URL, headers=headers, json=payload)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return {"error": f"Failed to query Hugging Face API: {response.text}"}
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
@@ -165,31 +151,14 @@ async def generate_text(request: ParaphraseRequest):
             generator = ChineseTextGenerator(paragraph)
             input_length = len(list(jieba.cut(paragraph)))
             generated_text = generator.generate_text(input_length)
+            output = f"{heading}\n{generated_text}" if heading else generated_text  # Preserve single newline
+            return {"language": request.language, "generated_text": output}
         else:
             # General paraphrasing logic
             logger.info(f"Paraphrasing text for language: {request.language}")
-            generated_text = paraphrase(paragraph)
-
-        # Combine heading and generated text
-        output_text = f"{heading}\n{generated_text}" if heading else generated_text
-
-        # Call Hugging Face BART API for summarization and use its output as the final generated text
-        logger.info(f"Sending generated text to Hugging Face API for summarization")
-        hf_response = query_huggingface_api({"inputs": output_text})
-
-        # Check if the Hugging Face API returned a summary
-        if "summary_text" in hf_response:
-            generated_text = hf_response["summary_text"]  # Use the summary as the final generated text
-        else:
-            generated_text = hf_response.get("error", "Failed to generate summary.")
-
-        # Return the Hugging Face output as the generated_text
-        return {
-            "language": request.language,
-            "original": request.text,
-            "generated_text": generated_text
-        }
-
+            paraphrased = paraphrase(paragraph)
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased  # Preserve single newline
+            return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") 
