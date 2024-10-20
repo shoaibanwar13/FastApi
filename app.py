@@ -7,6 +7,7 @@ from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import re  # For punctuation spacing adjustments
+from textblob import TextBlob  # For grammar correction and refinement
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
@@ -66,7 +67,6 @@ def paraphrase(text: str) -> str:
 
         paraphrased_text.append(paraphrased_word)
 
-    # Join the words back into a string
     paraphrased_sentence = ' '.join(paraphrased_text)
 
     # Correct spacing for punctuation (e.g., no space before commas, periods, etc.)
@@ -80,7 +80,10 @@ def paraphrase(text: str) -> str:
     capitalized_sentences = [s.capitalize() for s in sentences]
     final_paraphrase = ' '.join(capitalized_sentences)
 
-    return final_paraphrase
+    # Use TextBlob for grammar correction and refinement
+    corrected_text = str(TextBlob(final_paraphrase).correct())
+
+    return corrected_text
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
