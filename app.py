@@ -34,6 +34,8 @@ class ParaphraseRequest(BaseModel):
     target_length: int = 100
 
 # Paraphrasing for non-Chinese text
+do_not_replace = {"is", "are", "has", "have", "was", "were", "be", "been", "am", "does", "did", "had"}
+
 def get_first_synonym(word, pos=None):
     synonyms = wordnet.synsets(word, pos=pos)
     if synonyms:
@@ -47,18 +49,27 @@ def paraphrase(text: str) -> str:
     paraphrased_text = []
 
     for word in words:
-        pos_tag = nltk.pos_tag([word])[0][1]
-        
-        if pos_tag.startswith('NN'):
-            paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
-        elif pos_tag.startswith('VB'):
-            paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
-        elif pos_tag.startswith('JJ'):
-            paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
-        elif pos_tag.startswith('RB'):
-            paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
+        # Preserve words based on conditions or if they are in the do_not_replace set
+        if (
+            word.lower() in do_not_replace or  # Do not change critical grammar words
+            word.isupper() or  # Preserve acronyms like ERP, AI, DNA, etc.
+            (len(word) > 1 and word[0].isupper() and word[1].islower()) or  # Preserve proper nouns (e.g., names, brands)
+            len(word) <= 2  # Preserve short words like "is", "at", "it", etc.
+        ):
+            paraphrased_word = word  # Keep original form
         else:
-            paraphrased_word = word
+            pos_tag = nltk.pos_tag([word])[0][1]
+            # Paraphrase based on the part of speech, ensuring contextual relevance
+            if pos_tag.startswith('NN'):
+                paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
+            elif pos_tag.startswith('VB'):
+                paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
+            elif pos_tag.startswith('JJ'):
+                paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
+            elif pos_tag.startswith('RB'):
+                paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
+            else:
+                paraphrased_word = word
 
         paraphrased_text.append(paraphrased_word)
 
@@ -71,55 +82,6 @@ def paraphrase(text: str) -> str:
     final_paraphrase = ' '.join(capitalized_sentences)
 
     return final_paraphrase
-
-# Chinese text generation using jieba and Markov chains
-class ChineseTextGenerator:
-    def __init__(self, text):  # Constructor now accepts 'text'
-        self.chain = {}
-        self.words = self.tokenize(text)
-        self.add_to_chain()
-
-    def tokenize(self, text):
-        return list(jieba.cut(text))
-
-    def add_to_chain(self):
-        for i in range(len(self.words) - 2):
-            current_pair = (self.words[i], self.words[i + 1])
-            next_word = self.words[i + 2]
-            if current_pair in self.chain:
-                if next_word not in self.chain[current_pair]:
-                    self.chain[current_pair].append(next_word)
-            else:
-                self.chain[current_pair] = [next_word]
-
-    def generate_text(self, input_length):
-        if input_length < 10:
-            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
-
-        required_length = max(1, int(input_length * 1.2))
-
-        if not self.chain:
-            return "未能生成内容，链为空。"
-
-        start_pair = random.choice(list(self.chain.keys()))
-        sentence = [start_pair[0], start_pair[1]]
-
-        while len(sentence) < required_length:
-            current_pair = (sentence[-2], sentence[-1])
-            next_words = self.chain.get(current_pair)
-            if not next_words:
-                break
-            next_word = random.choice(next_words)
-            sentence.append(next_word)
-
-        output_sentence = ''.join(sentence)
-
-        while len(output_sentence) < required_length:
-            next_word = random.choice(self.words)
-            sentence.append(next_word)
-            output_sentence = ''.join(sentence)
-
-        return output_sentence
 
 # Function to detect heading and separate it from paragraph
 def detect_heading_and_paragraph(text: str):
