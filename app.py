@@ -49,7 +49,7 @@ def paraphrase(text: str) -> str:
     paraphrased_text = []
 
     for word in words:
-        if word.lower() in do_not_replace:
+        if word.lower() in do_not_replace or not word.isalpha():
             paraphrased_word = word
         else:
             pos_tag = nltk.pos_tag([word])[0][1]
@@ -84,7 +84,7 @@ def paraphrase(text: str) -> str:
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):  # Constructor now accepts 'text'
+    def __init__(self, text):
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -104,7 +104,7 @@ class ChineseTextGenerator:
 
     def generate_text(self, input_length):
         if input_length < 10:
-            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
+            return "输入的文本不足以生成新的内容。请提供更长的文本。"
 
         required_length = max(1, int(input_length * 1.2))
 
