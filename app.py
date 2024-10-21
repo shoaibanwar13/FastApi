@@ -21,10 +21,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Define a request model for the input, including heading and text
@@ -45,7 +45,6 @@ def get_first_synonym(word, pos=None):
     return word
 
 def paraphrase(text: str) -> str:
-    # List of month names to ensure proper capitalization
     month_names = {
         "january", "february", "march", "april", "may", "june", 
         "july", "august", "september", "october", "november", "december"
@@ -55,12 +54,12 @@ def paraphrase(text: str) -> str:
     paraphrased_text = []
 
     for word in words:
-        # Check for acronyms (all uppercase) and proper nouns to preserve their capitalization
+        # Preserve capitalization and certain words
         if word.isupper() or word.lower() in month_names or word.lower() in do_not_replace:
             paraphrased_word = word
         else:
             pos_tag = nltk.pos_tag([word])[0][1]
-            if pos_tag.startswith('NNP'):  # Proper Noun, singular
+            if pos_tag.startswith('NNP'):
                 paraphrased_word = word.capitalize()
             elif pos_tag.startswith('NN'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
@@ -81,10 +80,10 @@ def paraphrase(text: str) -> str:
     # Correct spacing for punctuation (e.g., no space before commas, periods, etc.)
     paraphrased_sentence = re.sub(r'\s+([,.!?])', r'\1', paraphrased_sentence)
 
-    # Handle single quote issues (e.g., "It 's" should become "It's")
+    # Correct contractions and possessives
     paraphrased_sentence = re.sub(r"\b(\w+)\s+'(\w+)\b", r"\1'\2", paraphrased_sentence)
 
-    # Split into sentences and capitalize each one
+    # Split into sentences and capitalize each one properly
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
 
@@ -101,72 +100,12 @@ def paraphrase(text: str) -> str:
     # Join the sentences back into a single string
     final_paraphrase_text = ' '.join(final_paraphrase)
 
+    # Further cleanup for grammar corrections
+    final_paraphrase_text = re.sub(r'\bi\s+', 'I ', final_paraphrase_text)
+    final_paraphrase_text = re.sub(r'(\s+)([,.!?])', r'\2', final_paraphrase_text)
+    final_paraphrase_text = re.sub(r'\s+(\'s)', r"'s", final_paraphrase_text)
+
     return final_paraphrase_text
-
-# Chinese text generation using jieba and Markov chains
-class ChineseTextGenerator:
-    def __init__(self, text):
-        self.chain = {}
-        self.words = self.tokenize(text)
-        self.add_to_chain()
-
-    def tokenize(self, text):
-        return list(jieba.cut(text))
-
-    def add_to_chain(self):
-        for i in range(len(self.words) - 2):
-            current_pair = (self.words[i], self.words[i + 1])
-            next_word = self.words[i + 2]
-            if current_pair in self.chain:
-                if next_word not in self.chain[current_pair]:
-                    self.chain[current_pair].append(next_word)
-            else:
-                self.chain[current_pair] = [next_word]
-
-    def generate_text(self, input_length):
-        if input_length < 10:
-            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
-
-        required_length = max(1, int(input_length * 1.2))
-
-        if not self.chain:
-            return "未能生成内容，链为空。"
-
-        start_pair = random.choice(list(self.chain.keys()))
-        sentence = [start_pair[0], start_pair[1]]
-
-        while len(sentence) < required_length:
-            current_pair = (sentence[-2], sentence[-1])
-            next_words = self.chain.get(current_pair)
-            if not next_words:
-                break
-            next_word = random.choice(next_words)
-            sentence.append(next_word)
-
-        output_sentence = ''.join(sentence)
-
-        while len(output_sentence) < required_length:
-            next_word = random.choice(self.words)
-            sentence.append(next_word)
-            output_sentence = ''.join(sentence)
-
-        return output_sentence
-
-# Function to detect heading and separate it from paragraph
-def detect_heading_and_paragraph(text: str):
-    lines = text.strip().split('\n')
-    heading = None
-    if len(lines) > 0:
-        first_line = lines[0].strip()
-        if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
-            heading = first_line
-            paragraph = '\n'.join(lines[1:]).strip()
-        else:
-            paragraph = text.strip()
-    else:
-        paragraph = text.strip()
-    
-    return heading, paragraph
 
 # API endpoint for text generation/paraphrasing
 @app.post("/generate/")
@@ -189,3 +128,4 @@ async def generate_text(request: ParaphraseRequest):
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
