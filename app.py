@@ -71,6 +71,8 @@ def paraphrase(text: str) -> str:
 
     # Correct spacing for punctuation (e.g., no space before commas, periods, etc.)
     paraphrased_sentence = re.sub(r'\s+([,.!?])', r'\1', paraphrased_sentence)
+    # Ensure space after periods, exclamation marks, and question marks
+    paraphrased_sentence = re.sub(r'([.!?])([^\s])', r'\1 \2', paraphrased_sentence)
 
     # Handle single quote issues (e.g., "It 's" should become "It's")
     paraphrased_sentence = re.sub(r"\b(\w+)\s+'(\w+)\b", r"\1'\2", paraphrased_sentence)
@@ -104,7 +106,7 @@ class ChineseTextGenerator:
 
     def generate_text(self, input_length):
         if input_length < 10:
-            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
+            return "输入的文本不足以生成新的内容。请提供更长的文本。"
 
         required_length = max(1, int(input_length * 1.2))
 
@@ -168,5 +170,3 @@ async def generate_text(request: ParaphraseRequest):
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-
