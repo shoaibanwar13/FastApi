@@ -45,24 +45,15 @@ def get_first_synonym(word, pos=None):
     return word
 
 def paraphrase(text: str) -> str:
-    # List of month names to ensure proper capitalization
-    month_names = {
-        "january", "february", "march", "april", "may", "june", 
-        "july", "august", "september", "october", "november", "december"
-    }
-
     words = nltk.word_tokenize(text)
     paraphrased_text = []
 
     for word in words:
-        # Check for acronyms (all uppercase) and proper nouns to preserve their capitalization
-        if word.isupper() or word.lower() in month_names or word.lower() in do_not_replace:
+        if word.lower() in do_not_replace:
             paraphrased_word = word
         else:
             pos_tag = nltk.pos_tag([word])[0][1]
-            if pos_tag.startswith('NNP'):  # Proper Noun, singular
-                paraphrased_word = word.capitalize()
-            elif pos_tag.startswith('NN'):
+            if pos_tag.startswith('NN'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
             elif pos_tag.startswith('VB'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
@@ -87,25 +78,13 @@ def paraphrase(text: str) -> str:
     # Split into sentences and capitalize each one
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
+    final_paraphrase = ' '.join(capitalized_sentences)
 
-    # Handle capitalization for specific words after initial processing
-    final_paraphrase = []
-    for sentence in capitalized_sentences:
-        words_in_sentence = sentence.split()
-        capitalized_words = [
-            word.capitalize() if word.lower() in month_names or pos_tag.startswith('NNP') else word
-            for word, pos_tag in nltk.pos_tag(words_in_sentence)
-        ]
-        final_paraphrase.append(' '.join(capitalized_words))
-
-    # Join the sentences back into a single string
-    final_paraphrase_text = ' '.join(final_paraphrase)
-
-    return final_paraphrase_text
+    return final_paraphrase
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):
+    def __init__(self, text):  # Constructor now accepts 'text'
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -189,3 +168,5 @@ async def generate_text(request: ParaphraseRequest):
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
