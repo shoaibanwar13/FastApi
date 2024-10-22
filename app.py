@@ -36,13 +36,33 @@ class ParaphraseRequest(BaseModel):
 # Paraphrasing for non-Chinese text
 do_not_replace = {"is", "are", "has", "have", "was", "were", "be", "been", "am", "does", "did", "had"}
 
-def get_first_synonym(word, pos=None):
+def get_inflected_synonym(word, original_word, pos=None):
+    """
+    Find a synonym for the given word and inflect it to match the form of the original word.
+    """
     synonyms = wordnet.synsets(word, pos=pos)
-    if synonyms:
-        lemma = synonyms[0].lemmas()[0].name()
-        if not any(char.isdigit() for char in lemma) and len(lemma) < 20:
-            return lemma.replace('_', ' ')
-    return word
+    if not synonyms:
+        return word
+
+    lemma = synonyms[0].lemmas()[0].name().replace('_', ' ')
+    
+    # Preserve original word's tense and form
+    if original_word.endswith('ing'):
+        if lemma.endswith('e'):
+            lemma = lemma[:-1] + 'ing'
+        elif not lemma.endswith('ing'):
+            lemma = lemma + 'ing'
+    elif original_word.endswith('ed'):
+        if not lemma.endswith('ed'):
+            lemma = lemma + 'ed'
+    elif original_word.endswith('es'):
+        if not lemma.endswith('es'):
+            lemma = lemma + 'es'
+    elif original_word.endswith('s') and not original_word.endswith('ss'):
+        if not lemma.endswith('s'):
+            lemma = lemma + 's'
+    
+    return lemma
 
 def paraphrase(text: str) -> str:
     words = nltk.word_tokenize(text)
@@ -54,13 +74,13 @@ def paraphrase(text: str) -> str:
         else:
             pos_tag = nltk.pos_tag([word])[0][1]
             if pos_tag.startswith('NN'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
+                paraphrased_word = get_inflected_synonym(word, word, pos=wordnet.NOUN)
             elif pos_tag.startswith('VB'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
+                paraphrased_word = get_inflected_synonym(word, word, pos=wordnet.VERB)
             elif pos_tag.startswith('JJ'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
+                paraphrased_word = get_inflected_synonym(word, word, pos=wordnet.ADJ)
             elif pos_tag.startswith('RB'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
+                paraphrased_word = get_inflected_synonym(word, word, pos=wordnet.ADV)
             else:
                 paraphrased_word = word
 
@@ -86,7 +106,7 @@ def paraphrase(text: str) -> str:
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):  # Constructor now accepts 'text'
+    def __init__(self, text):
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -106,7 +126,7 @@ class ChineseTextGenerator:
 
     def generate_text(self, input_length):
         if input_length < 10:
-            return "输入的文本不足以生成新的内容。请提供更长的文本。"
+            return "输入的文本不足以生成新的内容。请提供更长的文本。"  
 
         required_length = max(1, int(input_length * 1.2))
 
