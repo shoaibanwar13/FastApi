@@ -57,14 +57,19 @@ def paraphrase(text: str) -> str:
         if corrected_word:
             word = list(corrected_word)[0]  # Convert to list to get the first candidate
 
+        # Retain words that should not be replaced
         if word.lower() in do_not_replace:
             paraphrased_word = word
         else:
             pos_tag = nltk.pos_tag([word])[0][1]
+            # Select synonym based on POS tag
             if pos_tag.startswith('NN'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
             elif pos_tag.startswith('VB'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
+                # Adjust conjugation if the word is a verb
+                if word != paraphrased_word:
+                    paraphrased_word = nltk.WordNetLemmatizer().lemmatize(paraphrased_word, 'v')
             elif pos_tag.startswith('JJ'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
             elif pos_tag.startswith('RB'):
@@ -88,7 +93,15 @@ def paraphrase(text: str) -> str:
     # Split into sentences and capitalize each one
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
-    final_paraphrase = ' '.join(capitalized_sentences)
+
+    # Use grammar correction here (e.g., GingerIt or any other library for corrections)
+    corrected_sentences = []
+    for sentence in capitalized_sentences:
+        # Here, an external grammar correction service or logic can be applied.
+        # For this example, we're simply using the capitalized sentences directly.
+        corrected_sentences.append(sentence)
+
+    final_paraphrase = ' '.join(corrected_sentences)
 
     return final_paraphrase
 
