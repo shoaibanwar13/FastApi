@@ -11,8 +11,8 @@ from spellchecker import SpellChecker  # Importing the spell checker
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
-nltk.download('punkt', force=True)
-nltk.download('averaged_perceptron_tagger', force=True)
+nltk.download('punkt', quiet=True)
+nltk.download('averaged_perceptron_tagger', quiet=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,24 +20,26 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+# Add CORS middleware for cross-origin resource sharing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Define a request model for the input, including heading and text
+# Define a request model for input, including language and text
 class ParaphraseRequest(BaseModel):
     language: str
     text: str
     target_length: int = 100
 
-# Paraphrasing for non-Chinese text
+# Set of words to avoid replacing
 do_not_replace = {"is", "are", "has", "have", "was", "were", "be", "been", "am", "does", "did", "had"}
 
 def get_first_synonym(word, pos=None):
+    """Retrieve the first synonym of a word based on its part-of-speech."""
     synonyms = wordnet.synsets(word, pos=pos)
     if synonyms:
         lemma = synonyms[0].lemmas()[0].name()
@@ -46,15 +48,16 @@ def get_first_synonym(word, pos=None):
     return word
 
 def correct_verb_tense(tagged_word, word):
+    """Adjust verb tense based on POS tags."""
     pos_tag = tagged_word[1]
     if pos_tag.startswith('VBD') or pos_tag.startswith('VBN'):
         return word if word.endswith('ed') else f"{word}ed"
-    elif pos_tag.startswith('VBZ') or pos_tag.startswith('VB'):
+    elif pos_tag.startswith('VBZ'):
         return word if word.endswith('s') else f"{word}s"
     return word
 
 def paraphrase(text: str) -> str:
-    # Spell check
+    """Paraphrase English text with synonym replacement and spell correction."""
     spell = SpellChecker()
     words = nltk.word_tokenize(text)
     tagged_words = nltk.pos_tag(words)
@@ -62,41 +65,30 @@ def paraphrase(text: str) -> str:
 
     for tagged_word in tagged_words:
         word, pos_tag = tagged_word
-        # Correct spelling
-        corrected_word = spell.correction(word)
-        if corrected_word:
-            word = corrected_word
+        corrected_word = spell.correction(word) or word
 
-        # Maintain certain words without replacement
-        if word.lower() in do_not_replace:
-            paraphrased_word = word
+        if corrected_word.lower() in do_not_replace:
+            paraphrased_word = corrected_word
         else:
-            # Get synonym based on part-of-speech
+            # Get synonyms or adjust verbs based on POS tags
             if pos_tag.startswith('NN'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
+                paraphrased_word = get_first_synonym(corrected_word, pos=wordnet.NOUN)
             elif pos_tag.startswith('VB'):
-                paraphrased_word = correct_verb_tense(tagged_word, get_first_synonym(word, pos=wordnet.VERB))
+                paraphrased_word = correct_verb_tense(tagged_word, get_first_synonym(corrected_word, pos=wordnet.VERB))
             elif pos_tag.startswith('JJ'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
+                paraphrased_word = get_first_synonym(corrected_word, pos=wordnet.ADJ)
             elif pos_tag.startswith('RB'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
+                paraphrased_word = get_first_synonym(corrected_word, pos=wordnet.ADV)
             else:
-                paraphrased_word = word
+                paraphrased_word = corrected_word
 
         paraphrased_text.append(paraphrased_word)
 
-    # Join the words back into a string
     paraphrased_sentence = ' '.join(paraphrased_text)
-
-    # Correct spacing for punctuation (e.g., no space before commas, periods, etc.)
     paraphrased_sentence = re.sub(r'\s+([,.!?])', r'\1', paraphrased_sentence)
-    # Ensure space after periods, exclamation marks, and question marks
     paraphrased_sentence = re.sub(r'([.!?])([^\s])', r'\1 \2', paraphrased_sentence)
-
-    # Handle single quote issues (e.g., "It 's" should become "It's")
     paraphrased_sentence = re.sub(r"\b(\w+)\s+'(\w+)\b", r"\1'\2", paraphrased_sentence)
 
-    # Split into sentences and capitalize each one
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
     final_paraphrase = ' '.join(capitalized_sentences)
@@ -105,7 +97,7 @@ def paraphrase(text: str) -> str:
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):  # Constructor now accepts 'text'
+    def __init__(self, text):
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
@@ -117,18 +109,13 @@ class ChineseTextGenerator:
         for i in range(len(self.words) - 2):
             current_pair = (self.words[i], self.words[i + 1])
             next_word = self.words[i + 2]
-            if current_pair in self.chain:
-                if next_word not in self.chain[current_pair]:
-                    self.chain[current_pair].append(next_word)
-            else:
-                self.chain[current_pair] = [next_word]
+            self.chain.setdefault(current_pair, []).append(next_word)
 
     def generate_text(self, input_length):
         if input_length < 10:
             return "输入的文本不足以生成新的内容。请提供更长的文本。"
 
         required_length = max(1, int(input_length * 1.2))
-
         if not self.chain:
             return "未能生成内容，链为空。"
 
@@ -143,22 +130,15 @@ class ChineseTextGenerator:
             next_word = random.choice(next_words)
             sentence.append(next_word)
 
-        output_sentence = ''.join(sentence)
-
-        while len(output_sentence) < required_length:
-            next_word = random.choice(self.words)
-            sentence.append(next_word)
-            output_sentence = ''.join(sentence)
-
-        return output_sentence
+        return ''.join(sentence)
 
 # Function to detect heading and separate it from paragraph
 def detect_heading_and_paragraph(text: str):
     lines = text.strip().split('\n')
     heading = None
-    if len(lines) > 0:
+    if lines:
         first_line = lines[0].strip()
-        if len(first_line.split()) <= 6 and first_line[-1] not in ".!?":
+        if len(first_line.split()) <= 6 and not first_line[-1] in ".!?":
             heading = first_line
             paragraph = '\n'.join(lines[1:]).strip()
         else:
