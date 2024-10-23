@@ -7,6 +7,7 @@ from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import re  # For punctuation spacing adjustments
+from spellchecker import SpellChecker  # For spell checking
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
@@ -27,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],  
 )
 
-# Define a request model for the input, including heading and text
+# Define a request model for the input, including language and text
 class ParaphraseRequest(BaseModel):
     language: str
     text: str
@@ -35,6 +36,14 @@ class ParaphraseRequest(BaseModel):
 
 # Paraphrasing for non-Chinese text
 do_not_replace = {"is", "are", "has", "have", "was", "were", "be", "been", "am", "does", "did", "had"}
+
+# Initialize spell checker
+spell = SpellChecker()
+
+def correct_spelling(text: str) -> str:
+    words = text.split()
+    corrected_words = [spell.correction(word) if word not in do_not_replace else word for word in words]
+    return ' '.join(corrected_words)
 
 def get_first_synonym(word, pos=None):
     synonyms = wordnet.synsets(word, pos=pos)
@@ -45,14 +54,18 @@ def get_first_synonym(word, pos=None):
     return word
 
 def paraphrase(text: str) -> str:
+    # Correct spelling before paraphrasing
+    text = correct_spelling(text)
     words = nltk.word_tokenize(text)
     paraphrased_text = []
 
     for word in words:
+        # Preserve words that should not be replaced
         if word.lower() in do_not_replace:
             paraphrased_word = word
         else:
             pos_tag = nltk.pos_tag([word])[0][1]
+            # Get the first synonym based on part of speech
             if pos_tag.startswith('NN'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
             elif pos_tag.startswith('VB'):
@@ -70,11 +83,10 @@ def paraphrase(text: str) -> str:
     paraphrased_sentence = ' '.join(paraphrased_text)
 
     # Correct spacing for punctuation (e.g., no space before commas, periods, etc.)
-    paraphrased_sentence = re.sub(r'\s+([,.!?])', r'\1', paraphrased_sentence)
-    # Ensure space after periods, exclamation marks, and question marks
+    paraphrased_sentence = re.sub(r'\s+([,.!?;:])', r'\1', paraphrased_sentence)
     paraphrased_sentence = re.sub(r'([.!?])([^\s])', r'\1 \2', paraphrased_sentence)
 
-    # Handle single quote issues (e.g., "It 's" should become "It's")
+    # Handle contractions more thoroughly (e.g., "it 's" should become "it's")
     paraphrased_sentence = re.sub(r"\b(\w+)\s+'(\w+)\b", r"\1'\2", paraphrased_sentence)
 
     # Split into sentences and capitalize each one
