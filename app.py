@@ -55,7 +55,7 @@ def paraphrase(text: str) -> str:
         # Correct spelling
         corrected_word = spell.candidates(word)
         if corrected_word:
-            word = corrected_word[0]  # Choose the first candidate for simplicity
+            word = list(corrected_word)[0]  # Convert to list to get the first candidate
 
         if word.lower() in do_not_replace:
             paraphrased_word = word
@@ -166,15 +166,12 @@ async def generate_text(request: ParaphraseRequest):
         if request.language.lower() == "chinese":
             logger.info(f"Generating text for Chinese input: {paragraph}")
             generator = ChineseTextGenerator(paragraph)
-            input_length = len(list(jieba.cut(paragraph)))
-            generated_text = generator.generate_text(input_length)
-            output = f"{heading}\n{generated_text}" if heading else generated_text
-            return {"language": request.language, "generated_text": output}
+            generated_text = generator.generate_text(request.target_length)
         else:
-            logger.info(f"Paraphrasing text for language: {request.language}")
-            paraphrased = paraphrase(paragraph)
-            output = f"{heading}\n{paraphrased}" if heading else paraphrased
-            return {"language": request.language, "original": request.text, "generated_text": output}
+            logger.info(f"Generating paraphrase for English input: {paragraph}")
+            generated_text = paraphrase(paragraph)
+
+        return {"heading": heading, "generated_text": generated_text}
     except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
