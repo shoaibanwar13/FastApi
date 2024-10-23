@@ -7,7 +7,6 @@ from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import re  # For punctuation spacing adjustments
-from spellchecker import SpellChecker  # Importing the spell checker
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
@@ -45,37 +44,19 @@ def get_first_synonym(word, pos=None):
             return lemma.replace('_', ' ')
     return word
 
-def correct_verb_tense(tagged_word, word):
-    pos_tag = tagged_word[1]
-    if pos_tag.startswith('VBD') or pos_tag.startswith('VBN'):
-        return word if word.endswith('ed') else f"{word}ed"
-    elif pos_tag.startswith('VBZ') or pos_tag.startswith('VB'):
-        return word if word.endswith('s') else f"{word}s"
-    return word
-
 def paraphrase(text: str) -> str:
-    # Spell check
-    spell = SpellChecker()
     words = nltk.word_tokenize(text)
-    tagged_words = nltk.pos_tag(words)
     paraphrased_text = []
 
-    for tagged_word in tagged_words:
-        word, pos_tag = tagged_word
-        # Correct spelling
-        corrected_word = spell.correction(word)
-        if corrected_word:
-            word = corrected_word
-
-        # Maintain certain words without replacement
+    for word in words:
         if word.lower() in do_not_replace:
             paraphrased_word = word
         else:
-            # Get synonym based on part-of-speech
+            pos_tag = nltk.pos_tag([word])[0][1]
             if pos_tag.startswith('NN'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
             elif pos_tag.startswith('VB'):
-                paraphrased_word = correct_verb_tense(tagged_word, get_first_synonym(word, pos=wordnet.VERB))
+                paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
             elif pos_tag.startswith('JJ'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
             elif pos_tag.startswith('RB'):
@@ -177,12 +158,15 @@ async def generate_text(request: ParaphraseRequest):
         if request.language.lower() == "chinese":
             logger.info(f"Generating text for Chinese input: {paragraph}")
             generator = ChineseTextGenerator(paragraph)
-            generated_text = generator.generate_text(request.target_length)
+            input_length = len(list(jieba.cut(paragraph)))
+            generated_text = generator.generate_text(input_length)
+            output = f"{heading}\n{generated_text}" if heading else generated_text
+            return {"language": request.language, "generated_text": output}
         else:
-            logger.info(f"Generating paraphrase for English input: {paragraph}")
-            generated_text = paraphrase(paragraph)
-
-        return {"heading": heading, "generated_text": generated_text}
+            logger.info(f"Paraphrasing text for language: {request.language}")
+            paraphrased = paraphrase(paragraph)
+            output = f"{heading}\n{paraphrased}" if heading else paraphrased
+            return {"language": request.language, "original": request.text, "generated_text": output}
     except Exception as e:
-        logger.error(f"Error occurred: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing request: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
