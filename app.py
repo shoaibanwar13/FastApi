@@ -45,31 +45,37 @@ def get_first_synonym(word, pos=None):
             return lemma.replace('_', ' ')
     return word
 
+def correct_verb_tense(tagged_word, word):
+    pos_tag = tagged_word[1]
+    if pos_tag.startswith('VBD') or pos_tag.startswith('VBN'):
+        return word if word.endswith('ed') else f"{word}ed"
+    elif pos_tag.startswith('VBZ') or pos_tag.startswith('VB'):
+        return word if word.endswith('s') else f"{word}s"
+    return word
+
 def paraphrase(text: str) -> str:
     # Spell check
     spell = SpellChecker()
     words = nltk.word_tokenize(text)
+    tagged_words = nltk.pos_tag(words)
     paraphrased_text = []
 
-    for word in words:
+    for tagged_word in tagged_words:
+        word, pos_tag = tagged_word
         # Correct spelling
-        corrected_word = spell.candidates(word)
+        corrected_word = spell.correction(word)
         if corrected_word:
-            word = list(corrected_word)[0]  # Convert to list to get the first candidate
+            word = corrected_word
 
-        # Retain words that should not be replaced
+        # Maintain certain words without replacement
         if word.lower() in do_not_replace:
             paraphrased_word = word
         else:
-            pos_tag = nltk.pos_tag([word])[0][1]
-            # Select synonym based on POS tag
+            # Get synonym based on part-of-speech
             if pos_tag.startswith('NN'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
             elif pos_tag.startswith('VB'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
-                # Adjust conjugation if the word is a verb
-                if word != paraphrased_word:
-                    paraphrased_word = nltk.WordNetLemmatizer().lemmatize(paraphrased_word, 'v')
+                paraphrased_word = correct_verb_tense(tagged_word, get_first_synonym(word, pos=wordnet.VERB))
             elif pos_tag.startswith('JJ'):
                 paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
             elif pos_tag.startswith('RB'):
@@ -93,15 +99,7 @@ def paraphrase(text: str) -> str:
     # Split into sentences and capitalize each one
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
-
-    # Use grammar correction here (e.g., GingerIt or any other library for corrections)
-    corrected_sentences = []
-    for sentence in capitalized_sentences:
-        # Here, an external grammar correction service or logic can be applied.
-        # For this example, we're simply using the capitalized sentences directly.
-        corrected_sentences.append(sentence)
-
-    final_paraphrase = ' '.join(corrected_sentences)
+    final_paraphrase = ' '.join(capitalized_sentences)
 
     return final_paraphrase
 
