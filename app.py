@@ -7,11 +7,12 @@ from nltk.corpus import wordnet
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import re  # For punctuation spacing adjustments
+from textblob import TextBlob  # For additional text correction
 
 # Download necessary NLTK data files
 nltk.download('wordnet', quiet=True)
-nltk.download('punkt', force=True)
-nltk.download('averaged_perceptron_tagger', force=True)
+nltk.download('punkt', quiet=True)
+nltk.download('averaged_perceptron_tagger', quiet=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,13 +37,58 @@ class ParaphraseRequest(BaseModel):
 # Paraphrasing for non-Chinese text
 do_not_replace = {"is", "are", "has", "have", "was", "were", "be", "been", "am", "does", "did", "had"}
 
-def get_first_synonym(word, pos=None):
+def get_synonyms(word, pos=None, max_synonyms=5):
+    """
+    Retrieve a list of synonyms for a given word and part of speech.
+    """
     synonyms = wordnet.synsets(word, pos=pos)
+    valid_synonyms = set()
+    for syn in synonyms:
+        for lemma in syn.lemmas():
+            synonym = lemma.name().replace('_', ' ')
+            # Filter out invalid synonyms (numbers, long words, same as original)
+            if (
+                synonym.lower() != word.lower()
+                and not any(char.isdigit() for char in synonym)
+                and len(synonym) < 20
+            ):
+                valid_synonyms.add(synonym)
+            if len(valid_synonyms) >= max_synonyms:
+                break
+        if len(valid_synonyms) >= max_synonyms:
+            break
+    return list(valid_synonyms)
+
+def get_contextual_synonym(word, pos=None):
+    """
+    Get a contextually suitable synonym for a word, avoiding unnatural choices.
+    """
+    synonyms = get_synonyms(word, pos)
     if synonyms:
-        lemma = synonyms[0].lemmas()[0].name()
-        if not any(char.isdigit() for char in lemma) and len(lemma) < 20:
-            return lemma.replace('_', ' ')
+        num_synonyms = min(5, len(synonyms))
+        weights = [0.5, 0.2, 0.15, 0.1, 0.05][:num_synonyms]
+        return random.choices(synonyms[:num_synonyms], weights=weights, k=1)[0]
     return word
+
+def expand_text_with_filler(sentences):
+    """
+    Expand sentences by adding relevant filler or elaboration to increase length.
+    """
+    filler_phrases = [
+        "Interestingly,",
+        "It is worth mentioning that",
+        "Moreover,",
+        "In addition to that,",
+        "As a matter of fact,",
+        "Notably,"
+    ]
+    expanded_sentences = []
+    for sentence in sentences:
+        if random.random() > 0.5:
+            filler = random.choice(filler_phrases)
+            sentence = f"{filler} {sentence}"
+        expanded_sentences.append(sentence)
+    return expanded_sentences
 
 def paraphrase(text: str) -> str:
     words = nltk.word_tokenize(text)
@@ -54,13 +100,13 @@ def paraphrase(text: str) -> str:
         else:
             pos_tag = nltk.pos_tag([word])[0][1]
             if pos_tag.startswith('NN'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.NOUN)
+                paraphrased_word = get_contextual_synonym(word, pos=wordnet.NOUN)
             elif pos_tag.startswith('VB'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.VERB)
+                paraphrased_word = get_contextual_synonym(word, pos=wordnet.VERB)
             elif pos_tag.startswith('JJ'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.ADJ)
+                paraphrased_word = get_contextual_synonym(word, pos=wordnet.ADJ)
             elif pos_tag.startswith('RB'):
-                paraphrased_word = get_first_synonym(word, pos=wordnet.ADV)
+                paraphrased_word = get_contextual_synonym(word, pos=wordnet.ADV)
             else:
                 paraphrased_word = word
 
@@ -69,24 +115,30 @@ def paraphrase(text: str) -> str:
     # Join the words back into a string
     paraphrased_sentence = ' '.join(paraphrased_text)
 
-    # Correct spacing for punctuation (e.g., no space before commas, periods, etc.)
+    # Correct spacing for punctuation
     paraphrased_sentence = re.sub(r'\s+([,.!?])', r'\1', paraphrased_sentence)
-    # Ensure space after periods, exclamation marks, and question marks
     paraphrased_sentence = re.sub(r'([.!?])([^\s])', r'\1 \2', paraphrased_sentence)
-
-    # Handle single quote issues (e.g., "It 's" should become "It's")
     paraphrased_sentence = re.sub(r"\b(\w+)\s+'(\w+)\b", r"\1'\2", paraphrased_sentence)
 
     # Split into sentences and capitalize each one
     sentences = nltk.sent_tokenize(paraphrased_sentence)
-    capitalized_sentences = [s.capitalize() for s in sentences]
-    final_paraphrase = ' '.join(capitalized_sentences)
+    expanded_sentences = expand_text_with_filler(sentences)
+    capitalized_sentences = [s.capitalize() for s in expanded_sentences]
 
+    # Use TextBlob for grammar correction
+    blob = TextBlob(' '.join(capitalized_sentences))
+    corrected_sentences = str(blob.correct())
+
+    # Join the sentences back into a single text, ensuring it is 110% of the input length
+    final_paraphrase = ' '.join(corrected_sentences.split())
+    while len(final_paraphrase.split()) < len(text.split()) * 1.1:
+        final_paraphrase += " " + random.choice(expanded_sentences)
+    
     return final_paraphrase
 
 # Chinese text generation using jieba and Markov chains
 class ChineseTextGenerator:
-    def __init__(self, text):  # Constructor now accepts 'text'
+    def __init__(self, text):  
         self.chain = {}
         self.words = self.tokenize(text)
         self.add_to_chain()
