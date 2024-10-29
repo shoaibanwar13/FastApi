@@ -46,7 +46,7 @@ def get_first_synonym(word, pos=None):
             return lemma.replace('_', ' ')
     return word
 
-# Updated paraphrasing function
+# Updated paraphrasing function with final capitalization adjustment
 def paraphrase(text: str) -> str:
     words = nltk.word_tokenize(text)
     paraphrased_text = []
@@ -78,13 +78,31 @@ def paraphrase(text: str) -> str:
 
     # Split into sentences and capitalize the start of each sentence
     sentences = nltk.sent_tokenize(paraphrased_sentence)
-    capitalized_sentences = [s.capitalize() for s in sentences]
-    
-    # Join sentences and ensure no uppercase after commas
-    final_text = ' '.join(capitalized_sentences)
+    expanded_sentences = expand_text_with_filler(sentences)
+    final_text = ' '.join(expanded_sentences)
+
+    # Final pass to capitalize only the first word of each sentence
+    final_text = '. '.join(s.capitalize() for s in final_text.split('. '))
+
+    # Ensure no uppercase letter after commas unless a proper noun
     final_text = re.sub(r',\s+([a-zA-Z])', lambda match: f", {match.group(1).lower()}", final_text)
 
     return final_text
+
+# Add filler to expand text with lowercase following filler phrases
+def expand_text_with_filler(sentences):
+    filler_phrases = [
+        "Interestingly,", "It is worth mentioning that", "Moreover,", 
+        "In addition to that,", "As a matter of fact,", "Notably,"
+    ]
+    expanded_sentences = []
+    for sentence in sentences:
+        if random.random() > 0.5:
+            filler = random.choice(filler_phrases)
+            # Lowercase the first character of the sentence after the filler
+            sentence = f"{filler} {sentence[0].lower() + sentence[1:]}"
+        expanded_sentences.append(sentence)
+    return expanded_sentences
 
 # Chinese text generator using jieba
 class ChineseTextGenerator:
@@ -126,20 +144,6 @@ class ChineseTextGenerator:
             sentence.append(next_word)
 
         return ''.join(sentence)
-
-# Add filler to expand text
-def expand_text_with_filler(sentences):
-    filler_phrases = [
-        "Interestingly,", "It is worth mentioning that", "Moreover,", 
-        "In addition to that,", "As a matter of fact,", "Notably,"
-    ]
-    expanded_sentences = []
-    for sentence in sentences:
-        if random.random() > 0.5:
-            filler = random.choice(filler_phrases)
-            sentence = f"{filler} {sentence}"
-        expanded_sentences.append(sentence)
-    return expanded_sentences
 
 # Detect heading and paragraph
 def detect_heading_and_paragraph(text: str):
