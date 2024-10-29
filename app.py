@@ -46,7 +46,7 @@ def get_first_synonym(word, pos=None):
             return lemma.replace('_', ' ')
     return word
 
-# Updated paraphrasing function with final capitalization adjustment
+# Paraphrasing function
 def paraphrase(text: str) -> str:
     words = nltk.word_tokenize(text)
     paraphrased_text = []
@@ -68,41 +68,14 @@ def paraphrase(text: str) -> str:
                 paraphrased_word = word
         paraphrased_text.append(paraphrased_word)
 
-    # Join words into a sentence and apply punctuation rules
     paraphrased_sentence = ' '.join(paraphrased_text)
-    
-    # Ensure proper spacing around punctuation
     paraphrased_sentence = re.sub(r'\s+([,.!?])', r'\1', paraphrased_sentence)
     paraphrased_sentence = re.sub(r'([.!?])([^\s])', r'\1 \2', paraphrased_sentence)
     paraphrased_sentence = re.sub(r"\b(\w+)\s+'(\w+)\b", r"\1'\2", paraphrased_sentence)
 
-    # Split into sentences and capitalize the start of each sentence
     sentences = nltk.sent_tokenize(paraphrased_sentence)
-    expanded_sentences = expand_text_with_filler(sentences)
-    final_text = ' '.join(expanded_sentences)
-
-    # Final pass to capitalize only the first word of each sentence
-    final_text = '. '.join(s.capitalize() for s in final_text.split('. '))
-
-    # Ensure no uppercase letter after commas unless a proper noun
-    final_text = re.sub(r',\s+([a-zA-Z])', lambda match: f", {match.group(1).lower()}", final_text)
-
-    return final_text
-
-# Add filler to expand text with lowercase following filler phrases
-def expand_text_with_filler(sentences):
-    filler_phrases = [
-        "Interestingly,", "It is worth mentioning that", "Moreover,", 
-        "In addition to that,", "As a matter of fact,", "Notably,"
-    ]
-    expanded_sentences = []
-    for sentence in sentences:
-        if random.random() > 0.5:
-            filler = random.choice(filler_phrases)
-            # Lowercase the first character of the sentence after the filler
-            sentence = f"{filler} {sentence[0].lower() + sentence[1:]}"
-        expanded_sentences.append(sentence)
-    return expanded_sentences
+    capitalized_sentences = [s.capitalize() for s in sentences]
+    return ' '.join(capitalized_sentences)
 
 # Chinese text generator using jieba
 class ChineseTextGenerator:
@@ -144,6 +117,31 @@ class ChineseTextGenerator:
             sentence.append(next_word)
 
         return ''.join(sentence)
+
+# Add filler to expand text
+def expand_text_with_filler(sentences):
+    filler_phrases = [
+        "Interestingly,", "It is worth mentioning that", "Moreover,", 
+        "In addition to that,", "As a matter of fact,", "Notably,"
+    ]
+    expanded_sentences = []
+    last_was_filler = False  # Track if the last sentence had a filler
+    
+    max_fillers = min(len(sentences) // 2, 3)  # Set a max number of fillers
+    filler_count = 0  # Count of fillers added
+    
+    for sentence in sentences:
+        # Check if we can add a filler and if the previous sentence didn't have one
+        if not last_was_filler and filler_count < max_fillers and random.random() > 0.5:
+            filler = random.choice(filler_phrases)
+            sentence = f"{filler} {sentence[0].lower() + sentence[1:]}"
+            filler_count += 1  # Increment filler count
+            last_was_filler = True  # Mark that this sentence had a filler
+        else:
+            last_was_filler = False  # No filler added, reset the flag
+        expanded_sentences.append(sentence)
+
+    return expanded_sentences
 
 # Detect heading and paragraph
 def detect_heading_and_paragraph(text: str):
