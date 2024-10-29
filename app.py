@@ -46,7 +46,7 @@ def get_first_synonym(word, pos=None):
             return lemma.replace('_', ' ')
     return word
 
-# Paraphrasing function
+# Updated paraphrasing function
 def paraphrase(text: str) -> str:
     words = nltk.word_tokenize(text)
     paraphrased_text = []
@@ -68,14 +68,23 @@ def paraphrase(text: str) -> str:
                 paraphrased_word = word
         paraphrased_text.append(paraphrased_word)
 
+    # Join words into a sentence and apply punctuation rules
     paraphrased_sentence = ' '.join(paraphrased_text)
+    
+    # Ensure proper spacing around punctuation
     paraphrased_sentence = re.sub(r'\s+([,.!?])', r'\1', paraphrased_sentence)
     paraphrased_sentence = re.sub(r'([.!?])([^\s])', r'\1 \2', paraphrased_sentence)
     paraphrased_sentence = re.sub(r"\b(\w+)\s+'(\w+)\b", r"\1'\2", paraphrased_sentence)
 
+    # Split into sentences and capitalize the start of each sentence
     sentences = nltk.sent_tokenize(paraphrased_sentence)
     capitalized_sentences = [s.capitalize() for s in sentences]
-    return ' '.join(capitalized_sentences)
+    
+    # Join sentences and ensure no uppercase after commas
+    final_text = ' '.join(capitalized_sentences)
+    final_text = re.sub(r',\s+([a-zA-Z])', lambda match: f", {match.group(1).lower()}", final_text)
+
+    return final_text
 
 # Chinese text generator using jieba
 class ChineseTextGenerator:
