@@ -6,6 +6,7 @@ from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
 import requests
 import random
+from fastapi.middleware.cors import CORSMiddlewar
 
 # Ensure nltk resources are downloaded
 nltk.download('punkt')
@@ -18,6 +19,14 @@ API_URL = "https://api-inference.huggingface.co/models/pszemraj/flan-t5-large-gr
 headers = {"Authorization": "Bearer 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"}  # Replace with your token
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
 
 # Pydantic model for request body
 class TextInput(BaseModel):
