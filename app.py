@@ -90,6 +90,6 @@ async def process_text_with_api(input: TextInput):
     # Check and return the refined response from the API
     if "error" not in response:
         refined_text = response[0].get('generated_text', '')
-        return {"paraphrased_text": paraphrased_text, "generate_text": refined_text}
+        return {"paraphrased_text": paraphrased_text, "generated_text": refined_text}
     else:
         raise HTTPException(status_code=500, detail=f"API error: {response['error']}")
