@@ -6,7 +6,7 @@ from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
 import requests
 import random
-from fastapi.middleware.cors import CORSMiddlewar
+from fastapi.middleware.cors import CORSMiddleware
 
 # Ensure nltk resources are downloaded
 nltk.download('punkt')
