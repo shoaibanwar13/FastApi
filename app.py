@@ -6,13 +6,15 @@ from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
 import requests
 import random
-from fastapi.middleware.cors import CORSMiddleware
+from collections import defaultdict
+from textblob import TextBlob  # For spelling correction
 
 # Ensure nltk resources are downloaded
-nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
 nltk.download('wordnet')
 nltk.download('omw-1.4')
+nltk.download('maxent_ne_chunker')
+nltk.download('words')
 
 # Hugging Face API setup
 API_URL = "https://api-inference.huggingface.co/models/pszemraj/flan-t5-large-grammar-synthesis"
@@ -20,17 +22,15 @@ headers = {"Authorization": "Bearer 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"}  # R
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  
-    allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
-)
-
 # Pydantic model for request body
 class TextInput(BaseModel):
     text: str
+
+# A simple glossary of terms you want to preserve
+preserved_terms = set([
+    "ERP", "AI", "machine learning", "deep learning", 
+    "data science", "enterprisingness", "imagination", "provision"
+])
 
 # Helper function to map nltk POS tags to WordNet POS tags
 def get_wordnet_pos(tag):
@@ -47,29 +47,59 @@ def get_wordnet_pos(tag):
 
 # Get synonyms with context awareness
 def get_best_synonym(word, pos):
-    synonyms = set()
+    synonyms = []
     for syn in wordnet.synsets(word, pos=pos):
         for lemma in syn.lemmas():
             synonym = lemma.name().replace('_', ' ')
+            # Ensure the synonym is valid (not the same word, single word, and natural)
             if synonym.lower() != word.lower() and len(synonym.split()) == 1:
-                synonyms.add(synonym)
-    
-    return random.choice(list(synonyms)) if synonyms else word
+                synonyms.append((synonym, lemma.count()))  # Add synonym with usage frequency
+
+    # Sort synonyms by their usage frequency in descending order
+    synonyms = sorted(synonyms, key=lambda x: x[1], reverse=True)
+
+    # Choose the top 3 synonyms randomly for variability, or fallback to the original word
+    top_synonyms = [syn[0] for syn in synonyms[:3]] if synonyms else []
+    return random.choice(top_synonyms) if top_synonyms else word
+
+
+# Function to identify important terms using NLTK's named entity recognition
+def extract_named_entities(text):
+    words = word_tokenize(text)
+    pos_tags = pos_tag(words)
+    named_entities = nltk.ne_chunk(pos_tags)
+    entities = set()
+
+    for chunk in named_entities:
+        if hasattr(chunk, 'label'):
+            entities.add(' '.join(c[0] for c in chunk))
+
+    return entities
 
 # Paraphrase function with synonym replacement
 def paraphrase_sentence(sentence):
-    words = word_tokenize(sentence)
+    # Correct spelling
+    corrected_sentence = str(TextBlob(sentence).correct())
+    
+    # Extract named entities
+    named_entities = extract_named_entities(corrected_sentence)
+    
+    # Tokenize and tag the corrected sentence
+    words = word_tokenize(corrected_sentence)
     tagged_words = pos_tag(words)
     
     paraphrased_sentence = []
-    
     for word, tag in tagged_words:
-        wordnet_pos = get_wordnet_pos(tag)
-        if wordnet_pos:
-            synonym = get_best_synonym(word, wordnet_pos)
-            paraphrased_sentence.append(synonym)
-        else:
+        # Check if the word is a named entity or in the preserved terms
+        if word in preserved_terms or word in named_entities:
             paraphrased_sentence.append(word)
+        else:
+            wordnet_pos = get_wordnet_pos(tag)
+            if wordnet_pos:
+                synonym = get_best_synonym(word, wordnet_pos)
+                paraphrased_sentence.append(synonym)
+            else:
+                paraphrased_sentence.append(word)
     
     return ' '.join(paraphrased_sentence)
 
@@ -90,6 +120,6 @@ async def process_text_with_api(input: TextInput):
     # Check and return the refined response from the API
     if "error" not in response:
         refined_text = response[0].get('generated_text', '')
-        return {"paraphrased_text": paraphrased_text, "generated_text": refined_text}
+        return {"paraphrased_text": paraphrased_text, "generate_text": refined_text}
     else:
         raise HTTPException(status_code=500, detail=f"API error: {response['error']}")
