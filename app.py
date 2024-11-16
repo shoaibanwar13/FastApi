@@ -17,6 +17,7 @@ nltk.download('wordnet')
 nltk.download('omw-1.4')
 nltk.download('maxent_ne_chunker')
 nltk.download('words')
+nltk.download('punkt')
 
 # Hugging Face API setup
 API_URL = "https://api-inference.huggingface.co/models/pszemraj/flan-t5-large-grammar-synthesis"
