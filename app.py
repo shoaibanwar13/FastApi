@@ -93,12 +93,17 @@ def paraphrase_sentence(sentence):
     # Extract named entities
     named_entities = extract_named_entities(corrected_sentence)
     
-    # Tokenize and tag the corrected sentence
+    # Tokenize the corrected sentence into words
     words = word_tokenize(corrected_sentence)
-    tagged_words = pos_tag(words)
     
-    paraphrased_sentence = []
-    for word, tag in tagged_words:
+    # Identify the first three words to preserve
+    preserved_words = words[:3]
+    
+    # Process the rest of the words
+    remaining_words = words[3:]
+    
+    paraphrased_sentence = preserved_words  # Start with preserved words
+    for word, tag in pos_tag(remaining_words):
         # Check if the word is a named entity or in the preserved terms
         if word in preserved_terms or word in named_entities:
             paraphrased_sentence.append(word)
@@ -111,7 +116,6 @@ def paraphrase_sentence(sentence):
                 paraphrased_sentence.append(word)
     
     return ' '.join(paraphrased_sentence)
-
 # Query the Hugging Face API
 def query(payload):
     response = requests.post(API_URL, headers=headers, json=payload)
