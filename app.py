@@ -21,7 +21,7 @@ nltk.download('punkt')
 
 # Hugging Face API setup
 API_URL = "https://api-inference.huggingface.co/models/pszemraj/flan-t5-large-grammar-synthesis"
-headers = {"Authorization": "Bearer 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"}  # Replace with your token
+headers = {"Authorization": "Bearer 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"}  # Replace with your token
 
 app = FastAPI()
 app.add_middleware(
