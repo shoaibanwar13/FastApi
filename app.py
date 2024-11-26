@@ -8,8 +8,7 @@ import requests
 import random
 from collections import defaultdict
 from textblob import TextBlob  # For spelling correction
-from fastapi.middleware.cors import CORSMiddleware
-
+import asyncio  # For asynchronous operations
 
 # Ensure nltk resources are downloaded
 nltk.download('averaged_perceptron_tagger')
@@ -17,20 +16,13 @@ nltk.download('wordnet')
 nltk.download('omw-1.4')
 nltk.download('maxent_ne_chunker')
 nltk.download('words')
-nltk.download('punkt')
 
 # Hugging Face API setup
 API_URL = "https://api-inference.huggingface.co/models/pszemraj/flan-t5-large-grammar-synthesis"
-headers = {"Authorization": "Bearer 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"}  # Replace with your token
+headers = {"Authorization": "Bearer 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"}  # Replace with your token
 
 app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  
-    allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
-)
+
 # Pydantic model for request body
 class TextInput(BaseModel):
     text: str
@@ -60,17 +52,12 @@ def get_best_synonym(word, pos):
     for syn in wordnet.synsets(word, pos=pos):
         for lemma in syn.lemmas():
             synonym = lemma.name().replace('_', ' ')
-            # Ensure the synonym is valid (not the same word, single word, and natural)
             if synonym.lower() != word.lower() and len(synonym.split()) == 1:
-                synonyms.append((synonym, lemma.count()))  # Add synonym with usage frequency
+                synonyms.append((synonym, lemma.count()))
 
-    # Sort synonyms by their usage frequency in descending order
     synonyms = sorted(synonyms, key=lambda x: x[1], reverse=True)
-
-    # Choose the top 3 synonyms randomly for variability, or fallback to the original word
     top_synonyms = [syn[0] for syn in synonyms[:3]] if synonyms else []
     return random.choice(top_synonyms) if top_synonyms else word
-
 
 # Function to identify important terms using NLTK's named entity recognition
 def extract_named_entities(text):
@@ -87,24 +74,14 @@ def extract_named_entities(text):
 
 # Paraphrase function with synonym replacement
 def paraphrase_sentence(sentence):
-    # Correct spelling
     corrected_sentence = str(TextBlob(sentence).correct())
-    
-    # Extract named entities
     named_entities = extract_named_entities(corrected_sentence)
-    
-    # Tokenize the corrected sentence into words
     words = word_tokenize(corrected_sentence)
-    
-    # Identify the first three words to preserve
     preserved_words = words[:3]
-    
-    # Process the rest of the words
     remaining_words = words[3:]
-    
-    paraphrased_sentence = preserved_words  # Start with preserved words
+
+    paraphrased_sentence = preserved_words
     for word, tag in pos_tag(remaining_words):
-        # Check if the word is a named entity or in the preserved terms
         if word in preserved_terms or word in named_entities:
             paraphrased_sentence.append(word)
         else:
@@ -116,23 +93,31 @@ def paraphrase_sentence(sentence):
                 paraphrased_sentence.append(word)
     
     return ' '.join(paraphrased_sentence)
-# Query the Hugging Face API
-def query(payload):
+
+# Asynchronous function to query the Hugging Face API
+async def query(payload):
     response = requests.post(API_URL, headers=headers, json=payload)
     return response.json()
+
+# Retry mechanism with exponential backoff
+async def query_with_retry(payload, max_retries=5, delay=2):
+    for attempt in range(max_retries):
+        response = await query(payload)
+        if "error" in response and "loading" in response["error"]:
+            await asyncio.sleep(delay)
+            delay *= 2  # Exponential backoff
+        else:
+            return response
+    raise HTTPException(status_code=500, detail="API is still loading after multiple attempts.")
 
 # FastAPI endpoint for text processing
 @app.post("/generate/")
 async def process_text_with_api(input: TextInput):
-    # Paraphrase the text
     paraphrased_text = paraphrase_sentence(input.text)
+    response = await query_with_retry({"inputs": paraphrased_text})
     
-    # Send the paraphrased text to the Hugging Face API for refinement
-    response = query({"inputs": paraphrased_text})
-    
-    # Check and return the refined response from the API
     if "error" not in response:
         refined_text = response[0].get('generated_text', '')
-        return {"paraphrased_text": paraphrased_text, "generated_text": refined_text}
+        return {"paraphrased_text": paraphrased_text, "generate_text": refined_text}
     else:
         raise HTTPException(status_code=500, detail=f"API error: {response['error']}")
