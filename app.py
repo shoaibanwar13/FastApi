@@ -9,6 +9,7 @@ import random
 from collections import defaultdict
 from textblob import TextBlob  # For spelling correction
 import asyncio  # For asynchronous operations
+from fastapi.middleware.cors import CORSMiddleware
 
 # Ensure nltk resources are downloaded
 nltk.download('averaged_perceptron_tagger')
@@ -22,6 +23,13 @@ API_URL = "https://api-inference.huggingface.co/models/pszemraj/flan-t5-large-gr
 headers = {"Authorization": "Bearer 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"}  # Replace with your token
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
 
 # Pydantic model for request body
 class TextInput(BaseModel):
