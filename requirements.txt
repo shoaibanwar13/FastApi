@@ -4,4 +4,5 @@ nltk==3.8.1
 uvicorn==0.22.0
 requests==2.31.0
 textblob==0.17.1
+numpy>=1.23.0
 
