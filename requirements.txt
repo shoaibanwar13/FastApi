@@ -1,10 +1,7 @@
 
-fastapi==0.115.5
-uvicorn==0.22.0
-textblob==0.15.3
-pattern==3.6
-jieba==0.42.1
+fastapi==0.95.2
+pydantic==2.4.1
 nltk==3.8.1
-language-tool-python==2.7.1
-pyspellchecker==0.6.0
-mangum==0.17.0
+requests==2.31.0
+textblob==0.17.1
+asyncio==3.4.3
