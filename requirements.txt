@@ -1,7 +1,6 @@
 
-fastapi==0.95.2
-pydantic==2.4.1
+fastapi==0.99.1
 nltk==3.8.1
 requests==2.31.0
 textblob==0.17.1
-asyncio==3.4.3
+
